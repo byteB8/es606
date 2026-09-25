@@ -1,0 +1,15 @@
+{
+ "module": "eg606.train.cv",
+ "args": [
+  "--dataset",
+  "music",
+  "--shift-ms",
+  "62",
+  "--cv-by",
+  "both",
+  "--cv",
+  "6",
+  "--tag",
+  "music_bothcv"
+ ]
+}

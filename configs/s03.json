@@ -1,0 +1,17 @@
+{
+ "module": "eg606.train.cv",
+ "args": [
+  "--dataset",
+  "bach",
+  "--cv-by",
+  "song",
+  "--cv",
+  "4",
+  "--val-groups",
+  "1",
+  "--windows",
+  "5,10",
+  "--tag",
+  "bach_songcv"
+ ]
+}

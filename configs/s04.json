@@ -1,0 +1,19 @@
+{
+ "module": "eg606.train.cv",
+ "args": [
+  "--dataset",
+  "bach",
+  "--cv-by",
+  "song",
+  "--cv",
+  "4",
+  "--val-groups",
+  "1",
+  "--windows",
+  "5,10",
+  "--init",
+  "/mnt/nas_ramanujan/balbir/egdta/models/speech_v2_best.pt",
+  "--tag",
+  "bach_songcv_ft"
+ ]
+}

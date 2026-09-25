@@ -1,0 +1,17 @@
+{
+ "module": "eg606.train.cv",
+ "args": [
+  "--dataset",
+  "music",
+  "--shift-ms",
+  "62",
+  "--cv-by",
+  "song",
+  "--cv",
+  "6",
+  "--init",
+  "/mnt/nas_ramanujan/balbir/egdta/models/speech_v2_best.pt",
+  "--tag",
+  "music_songcv_ft"
+ ]
+}
