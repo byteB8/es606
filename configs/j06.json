@@ -1,0 +1,17 @@
+{
+ "module": "eg606.eval.protocol",
+ "args": [
+  "--variant",
+  "bs64",
+  "--feature",
+  "onset",
+  "--splits",
+  "loso,song",
+  "--windows",
+  "10,30",
+  "--band",
+  "16,31.5",
+  "--out",
+  "results/protocol_b1631.json"
+ ]
+}

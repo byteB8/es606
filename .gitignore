@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# Runtime output. Result JSONs are small and are the record of every experiment, so they are
+# tracked; anything bulky under results/ is not.
+results/**/*.npz
+results/**/*.pt
+logs/
+outputs/
+
+# Data and copyrighted stimulus audio never go in the repo (anchored: src/eg606/data/ is code)
+/data/
+*.wav
+*.flac
+*.mp3
+*.m4a
+*.aac
+*.npy
+*.npz
+*.mat
+*.set
+*.fdt
+*.bdf
+*.edf
+
+# exported conversation transcripts
+*local-command*.txt
+*-caveat*.txt
+
+# Internal records kept locally (and on the NAS mirror), not published
+LAB_NOTEBOOK.md
+results/
+scripts/servers.env

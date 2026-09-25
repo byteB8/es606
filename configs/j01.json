@@ -1,0 +1,15 @@
+{
+ "module": "eg606.eval.protocol",
+ "args": [
+  "--variant",
+  "none",
+  "--feature",
+  "onset",
+  "--splits",
+  "naive,loso,song",
+  "--windows",
+  "5,10,30",
+  "--out",
+  "results/protocol_none_onset.json"
+ ]
+}

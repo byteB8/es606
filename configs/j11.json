@@ -1,0 +1,13 @@
+{
+ "module": "eg606.eval.transfer",
+ "args": [
+  "--speech-subjects",
+  "20",
+  "--feature",
+  "onset",
+  "--windows",
+  "5,10,30,60",
+  "--out",
+  "results/transfer_onset_full.json"
+ ]
+}

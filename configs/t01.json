@@ -1,0 +1,21 @@
+{
+ "module": "eg606.train.contrastive",
+ "args": [
+  "--dataset",
+  "music",
+  "--feature",
+  "onset",
+  "--epochs",
+  "60",
+  "--steps",
+  "400",
+  "--batch",
+  "512",
+  "--holdout",
+  "4",
+  "--windows",
+  "5,10,30",
+  "--tag",
+  "music_only"
+ ]
+}
