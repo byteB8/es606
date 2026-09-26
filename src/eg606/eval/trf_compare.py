@@ -29,6 +29,8 @@ from eg606.paths import derived_dir
 
 log = logging.getLogger(__name__)
 WINDOW_MS = (0, 400)       # search window for the peak, away from edge effects
+MAX_SHIFT = 12             # samples at 64 Hz: +-187 ms, wider than any plausible offset
+BOOT = 2000
 
 
 def peak_ms(t: np.ndarray) -> float:
@@ -36,6 +38,27 @@ def peak_ms(t: np.ndarray) -> float:
     gfp = t.std(1)
     keep = (lags_ms >= WINDOW_MS[0]) & (lags_ms <= WINDOW_MS[1])
     return float(lags_ms[keep][np.argmax(gfp[keep])])
+
+
+def align_shift(gfp_ref: np.ndarray, gfp: np.ndarray) -> float:
+    """Lag, in ms, that best aligns one GFP time course onto the reference (positive = later)."""
+    xc = [np.corrcoef(np.roll(gfp_ref, k), gfp)[0, 1] for k in range(-MAX_SHIFT, MAX_SHIFT + 1)]
+    return (int(np.argmax(xc)) - MAX_SHIFT) / FS * 1000
+
+
+def bootstrap_shift(ref_trfs: list, trfs: list, rng) -> list[float]:
+    """Listener-level bootstrap of the alignment shift.
+
+    Peak-picking is noisy because a single sample of jitter moves the answer by 15.6 ms; aligning
+    the whole time course uses every sample of it. That makes this, not the peak, the statistic the
+    timing claim rests on, so it needs an interval.
+    """
+    out = []
+    for _ in range(BOOT):
+        a = np.mean([ref_trfs[i] for i in rng.integers(0, len(ref_trfs), len(ref_trfs))], axis=0)
+        b = np.mean([trfs[i] for i in rng.integers(0, len(trfs), len(trfs))], axis=0)
+        out.append(align_shift(a.std(1), b.std(1)))
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -62,11 +85,13 @@ def main(argv: list[str] | None = None) -> int:
 
     lags_ms = TRF_LAGS / FS * 1000
     summary = {"band": band, "lags_ms": lags_ms.tolist(), "datasets": {}}
-    grand = {}
+    grand, per_listener_trfs = {}, {}
     for name, per_listener in groups.items():
-        peaks = [peak_ms(trf(trials)) for trials in per_listener if trials]
+        trfs = [trf(trials) for trials in per_listener if trials]
+        peaks = [peak_ms(t) for t in trfs]
         pooled = trf([t for trials in per_listener for t in trials])
         grand[name] = pooled
+        per_listener_trfs[name] = trfs
         rng = np.random.default_rng(0)
         boots = [np.median(rng.choice(peaks, len(peaks))) for _ in range(2000)]
         summary["datasets"][name] = {
@@ -91,13 +116,20 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {name:<20} median difference {diff:+5.0f} ms  U={u:.0f}  p={pval:.3g}")
         summary["datasets"][name]["vs_speech"] = {"median_diff_ms": float(diff), "U": float(u), "p": float(pval)}
     g_ref = grand[ref].std(1)
+    rng = np.random.default_rng(0)
     print("\nshift that best aligns each music GFP to speech (positive = music later):")
     for name in [n for n in grand if n != ref]:
         g = grand[name].std(1)
-        xc = [np.corrcoef(np.roll(g_ref, k), g)[0, 1] for k in range(-12, 13)]
-        k = int(np.argmax(xc)) - 12
-        print(f"  {name:<20} {k / FS * 1000:+5.0f} ms (r={max(xc):.3f})")
-        summary["datasets"][name]["gfp_shift_vs_speech_ms"] = k / FS * 1000
+        shift = align_shift(g_ref, g)
+        boots = bootstrap_shift(per_listener_trfs[ref], per_listener_trfs[name], rng)
+        lo, hi = float(np.percentile(boots, 2.5)), float(np.percentile(boots, 97.5))
+        # two-sided: how often does the bootstrap land on no shift at all?
+        pval = float(2 * min((np.array(boots) <= 0).mean(), (np.array(boots) >= 0).mean()))
+        print(f"  {name:<20} {shift:+5.0f} ms  95% CI [{lo:+.0f}, {hi:+.0f}]  p={pval:.3g}")
+        summary["datasets"][name]["gfp_shift_vs_speech_ms"] = shift
+        summary["datasets"][name]["gfp_shift_ci95_ms"] = [lo, hi]
+        summary["datasets"][name]["gfp_shift_p"] = pval
+        summary["datasets"][name]["gfp_shift_boot"] = boots
     if args.out:
         Path(args.out).write_text(json.dumps(summary, indent=1))
         print(f"\nwrote {args.out}")

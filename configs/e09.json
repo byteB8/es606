@@ -1,0 +1,23 @@
+{
+ "module": "eg606.train.cv",
+ "args": [
+  "--dataset",
+  "music",
+  "--model",
+  "v2",
+  "--cv",
+  "5",
+  "--cv-by",
+  "listener",
+  "--shift-ms",
+  "62",
+  "--train-fraction",
+  "0.5",
+  "--seed",
+  "0",
+  "--tag",
+  "scale_music_ft_f0500",
+  "--init",
+  "/home/balbir.prasad/egdta/models/speech_v2_best.pt"
+ ]
+}

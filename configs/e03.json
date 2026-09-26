@@ -1,0 +1,9 @@
+{
+ "module": "eg606.eval.cnn_leakage",
+ "args": [
+  "--dataset",
+  "nmed_h",
+  "--out",
+  "results/e3/cnn_nmed_h.json"
+ ]
+}

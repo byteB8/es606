@@ -113,6 +113,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="what is held out: listeners, songs, or both at once (the hardest test)")
     ap.add_argument("--val-groups", type=int, default=2, help="groups kept for early stopping")
     ap.add_argument("--subjects", type=int, default=60, help="speech listeners to use")
+    ap.add_argument("--train-fraction", type=float, default=1.0,
+                    help="fraction of the training recordings to keep, for the data-scaling curve")
     ap.add_argument("--epochs", type=int, default=40)
     ap.add_argument("--steps", type=int, default=300)
     ap.add_argument("--batch", type=int, default=512)
@@ -198,11 +200,19 @@ def main(argv: list[str] | None = None) -> int:
             train = [r for r in train if r["sub"] not in test_subs]
             val = [r for r in val if r["sub"] not in test_subs]
             test = [r for r in test if r["sub"] in test_subs]
+        if args.train_fraction < 1.0 and train:
+            # subsample recordings, not windows, so a fold sees fewer listener-song pairs rather
+            # than thinner slices of all of them. Seeded, so the scratch and pretrained arms of
+            # the scaling curve are trained on exactly the same subset.
+            pick = np.random.default_rng(1000 + args.seed).permutation(len(train))
+            keep = max(1, int(round(len(train) * args.train_fraction)))
+            train = [train[i] for i in sorted(pick[:keep])]
         if not test or not train:
             log.warning("fold %d empty, skipped", k + 1)
             continue
-        log.info("fold %d/%d  held-out %s %s  val %s  train %d recordings  test %d", k + 1, len(folds),
-                 key, sorted(test_g), sorted(val_g), len(train), len(test))
+        log.info("fold %d/%d  held-out %s %s  val %s  train %d recordings (%.0f%%)  test %d",
+                 k + 1, len(folds), key, sorted(test_g), sorted(val_g), len(train),
+                 100 * args.train_fraction, len(test))
         model, best_epoch, hist = train_one(train, val, args, device, rng, args.init)
         fold_res = per_listener(model, test, windows, device)
         meta.append({"fold": k, "held_out": sorted(map(str, test_g)), "val": sorted(map(str, val_g)),

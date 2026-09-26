@@ -1,0 +1,15 @@
+train.py --config configs/e01.json
+train.py --config configs/e02.json
+train.py --config configs/e03.json
+train.py --config configs/e04.json
+train.py --config configs/e05.json
+train.py --config configs/e06.json
+train.py --config configs/e07.json
+train.py --config configs/e08.json
+train.py --config configs/e09.json
+train.py --config configs/e10.json
+train.py --config configs/e11.json
+train.py --config configs/e12.json
+train.py --config configs/e13.json
+train.py --config configs/e14.json
+train.py --config configs/e15.json

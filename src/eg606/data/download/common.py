@@ -24,6 +24,18 @@ class Remote:
     size: int | None = None  # expected bytes; enables skip-if-complete and verification
 
 
+def _is_error_page(head: bytes, resp) -> bool:
+    """A server error page served with status 200.
+
+    Left unchecked this poisons a resumable download: the page is written as the first bytes, the
+    size check fails, and the retry resumes *after* it, so the file ends at exactly the expected
+    length with HTML at its head. (Hit on 26 NMED-T files; repaired by tools/repair_head.py.)
+    """
+    if "html" in (resp.headers.get_content_type() or ""):
+        return True
+    return head.lstrip()[:16].lower().startswith((b"<!doctype", b"<html"))
+
+
 def _open(url: str, start: int = 0, timeout: int = 120):
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     if start:
@@ -48,7 +60,14 @@ def fetch(item: Remote, root: Path, retries: int = 6) -> Path:
             with _open(item.url, start) as resp:
                 if start and resp.status != 206:  # server ignored the range: restart
                     start = 0
+                head = resp.read(CHUNK)
+                if not start and _is_error_page(head, resp):
+                    log.warning("%s: attempt %d/%d returned an error page, not the file",
+                                item.rel_path, attempt, retries)
+                    time.sleep(min(120, 2 ** attempt))
+                    continue
                 with open(part, "ab" if start else "wb") as fh:
+                    fh.write(head)
                     shutil.copyfileobj(resp, fh, CHUNK)
         except urllib.error.HTTPError as e:
             if e.code == 416 and start:  # partial already holds the whole file

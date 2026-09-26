@@ -15,7 +15,7 @@ from eg606.paths import raw_dir
 
 from .common import fetch_all
 
-DATASETS = ("sparrkulee", "musin_g", "nmed_h", "nmed_t")
+DATASETS = ("sparrkulee", "musin_g", "nmed_h", "nmed_t", "openmiir")
 
 
 def _status(name: str, items) -> tuple[int, int, int]:

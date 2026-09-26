@@ -6,8 +6,10 @@
 #   scripts/sync.sh run  "<cmd>"         # run in the remote repo dir, foreground
 #   scripts/sync.sh bg   <name> "<cmd>"  # detached tmux session, log to logs/<name>.log (not on HPC)
 #   scripts/sync.sh sbatch "<cmd>"       # submit a Slurm job (Singularity HPC)
+#   scripts/sync.sh array <jobs-file>    # submit a throttled array (2 GPUs max, cluster policy)
 #   scripts/sync.sh queue                # squeue for your jobs
 #   scripts/sync.sh status               # full read-only status (works on the HPC too)
+#   scripts/sync.sh data <name> [--dry]  # copy a derived dataset to a host without the NAS mount
 #
 # Server: bhaskar by default; EG606_SERVER=ramanujan to switch.
 set -euo pipefail
@@ -34,6 +36,15 @@ case "${1:-}" in
   push)
     $ssh_cmd "$host" "mkdir -p $remote_dir"
     rsync -az --delete "${excludes[@]}" -e "$ssh_cmd" "$here/" "$host:$remote_dir/" ;;
+  data)
+    # The HPC cluster has no NAS mount, so its copy of a derived dataset lives in Lustre home.
+    # The NAS is only visible from bhaskar, so the copy runs there and pushes on to the target.
+    shift
+    name="${1:?usage: EG606_SERVER=<host> sync.sh data <dataset>}"
+    [ "${EG606_SERVER:-bhaskar}" = bhaskar ] && { echo "bhaskar reads the NAS directly" >&2; exit 1; }
+    ssh -p "${BHASKAR_PORT:-22}" -o BatchMode=yes "$BHASKAR_HOST" \
+      "rsync -az --info=stats1 -e 'ssh -p $port -o BatchMode=yes' \
+         /mnt/nas/balbir/egdta/derived/$name $host:egdta/derived/" ;;
   pull)
     rsync -az --ignore-missing-args -e "$ssh_cmd" \
       "$host:$remote_dir/results" "$host:$remote_dir/logs" "$here/" ;;
@@ -47,6 +58,14 @@ case "${1:-}" in
   sbatch)
     shift
     $ssh_cmd "$host" "cd $remote_dir && mkdir -p logs && sbatch scripts/slurm/train.sbatch '$*'" ;;
+  array)
+    # One array, never many jobs: the cluster caps a user at 2 GPUs and "%2" is what enforces it.
+    shift
+    f="${1:?usage: sync.sh array <jobs-file>}"
+    n=$($ssh_cmd "$host" "cd $remote_dir && grep -c . '$f'")
+    echo "submitting $n jobs as one array, at most 2 at a time"
+    $ssh_cmd "$host" "cd $remote_dir && mkdir -p logs results && \
+      sbatch --array=0-$((n - 1))%2 scripts/slurm/array.sbatch '$f'" ;;
   queue)
     $ssh_cmd "$host" "squeue -u \$(whoami)" ;;
   status)

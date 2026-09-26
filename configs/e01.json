@@ -1,0 +1,9 @@
+{
+ "module": "eg606.eval.cnn_leakage",
+ "args": [
+  "--dataset",
+  "musin_g",
+  "--out",
+  "results/e3/cnn_musin_g.json"
+ ]
+}
