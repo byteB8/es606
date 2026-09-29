@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -141,6 +142,57 @@ def latency_figure(root: Path, out: Path) -> None:
     log.info("wrote %s", out / "latency_bands.png")
 
 
+def sweep_figure(root: Path, out: Path) -> None:
+    """Accuracy against the shift applied to the music, for all three music datasets.
+
+    This is the timing result in one picture: the same speech decoder, the same sweep, applied to
+    three datasets. MUSIN-G peaks away from zero; OpenMIIR, whose authors corrected their onsets
+    with a recorded audio marker, peaks at zero.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    sources = [("MUSIN-G", "latency_broad.json", "#c0392b"),
+               ("Bach", "latency_bach_broad.json", "#2c6fbb"),
+               ("OpenMIIR", "openmiir/latency_broad.json", "#1e8449")]
+    fig, ax = plt.subplots(figsize=(7, 4.4))
+    found = 0
+    for label, pattern, color in sources:
+        hits = sorted(root.rglob(pattern))
+        if not hits:
+            log.warning("no %s for the sweep figure", pattern)
+            continue
+        d = json.loads(hits[-1].read_text())
+        sweep = d.get("sweep", [])
+        wins = sorted((k for k in sweep[0] if re.fullmatch(r"\d+(\.\d+)?s", k)),
+                      key=lambda k: float(k[:-1]))
+        if not wins:
+            continue
+        win = wins[-1]
+        xs = [r["shift_ms"] for r in sweep]
+        ys = [r.get(win, float("nan")) for r in sweep]
+        ax.plot(xs, ys, "o-", color=color, markersize=4,
+                label=f"{label} ({win} windows)")
+        best = max(sweep, key=lambda r: r.get(win, 0))
+        ax.axvline(best["shift_ms"], color=color, ls=":", lw=1)
+        found += 1
+    if not found:
+        plt.close(fig)
+        return
+    ax.axhline(0.5, color="k", ls="--", lw=1)
+    ax.axvline(0, color="0.6", lw=0.8)
+    ax.set_xlabel("shift applied to the music (ms; positive = music treated as later)")
+    ax.set_ylabel("match-mismatch accuracy")
+    ax.set_title("One speech decoder, three music datasets\n"
+                 "(dotted lines: the shift each dataset selects)", fontsize=10)
+    ax.legend(frameon=False, fontsize=8)
+    ax.spines[["top", "right"]].set_visible(False)
+    fig.tight_layout()
+    fig.savefig(out / "shift_sweeps.png", dpi=180)
+    log.info("wrote %s", out / "shift_sweeps.png")
+
+
 def scaling_figure(root: Path, out: Path) -> None:
     """How much music EEG is speech pretraining worth?"""
     import matplotlib
@@ -197,6 +249,7 @@ def main(argv: list[str] | None = None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     leakage_figure(root, out)
     latency_figure(root, out)
+    sweep_figure(root, out)
     scaling_figure(root, out)
     return 0
 

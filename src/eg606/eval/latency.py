@@ -26,7 +26,7 @@ import numpy as np
 
 from eg606.eval.linear import FS, accumulate, match_mismatch, predict, solve, zscore
 from eg606.eval.protocol import bandpass
-from eg606.eval.transfer import LAMBDAS, music_trials, speech_trials
+from eg606.eval.transfer import LAMBDAS, music_trials, openmiir_trials, speech_trials
 from eg606.paths import derived_dir
 
 log = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--feature", default="onset")
     ap.add_argument("--band", default=None)
     ap.add_argument("--windows", default="10,30")
-    ap.add_argument("--music", default="musin_g", choices=["musin_g", "bach"],
+    ap.add_argument("--music", default="musin_g", choices=["musin_g", "bach", "openmiir"],
                     help="which music dataset the speech decoder is applied to")
     ap.add_argument("--out", default=None)
     args = ap.parse_args(argv)
@@ -112,7 +112,15 @@ def main(argv: list[str] | None = None) -> int:
 
     # ---- music trials in the same montage
     music, owners = [], []
-    if args.music == "bach":
+    if args.music == "openmiir":
+        om_root = derived_dir("openmiir")
+        om_feats = {v: dict(np.load(om_root / f"audio_features_{v}.npz"))
+                    for v in ("v1", "v2") if (om_root / f"audio_features_{v}.npz").exists()}
+        for p in sorted(om_root.glob("sub-*.npz")):
+            for _, e, y in openmiir_trials(p, om_feats, args.feature, band):
+                music.append((e, y))
+                owners.append(p.stem)
+    elif args.music == "bach":
         for p in sorted(derived_dir("bach_silence").glob("sub-*.npz")):
             for e, y in bach_trials(p, band):
                 music.append((e, y))
@@ -183,7 +191,14 @@ def main(argv: list[str] | None = None) -> int:
     peak_s, peak_m = lags_ms[np.argmax(gfp_s)], lags_ms[np.argmax(gfp_m)]
     xc = [float(np.corrcoef(np.roll(ts, k), tm)[0, 1]) for k in range(-10, 11)]
     best_k = int(np.argmax(xc)) - 10
-    spatial = float(np.corrcoef(trf_speech[np.argmax(gfp_s)], trf_music[np.argmax(gfp_m)])[0, 1])
+    # A GFP peak marks the largest deflection without saying which way it points, so two datasets
+    # can be compared at peaks of opposite polarity and look anticorrelated when the pattern is the
+    # same. Orient both to negative over the fronto-central cluster, as eval/topo.py does.
+    def _orient(topo):
+        return -topo if topo[idx].mean() > 0 else topo
+
+    spatial = float(np.corrcoef(_orient(trf_speech[np.argmax(gfp_s)]),
+                                _orient(trf_music[np.argmax(gfp_m)]))[0, 1])
 
     print(f"\n=== latency analysis, music={args.music}, feature={args.feature}, band={band}")
     print("shift sweep (speech decoder on music; positive = music response later):")

@@ -51,6 +51,37 @@ def per_listener(model, recs, windows, device):
     return out
 
 
+def control_recs(recs: list[dict], mode: str, rng) -> list[dict]:
+    """Test-set transforms that a time-locked effect should not survive.
+
+    Bach reaches 0.97 at 10 s, which is high enough that a reader is entitled to ask whether the
+    match-mismatch task is being solved some other way. Both controls keep the audio and the task
+    identical and break only the EEG's relationship to it:
+
+      shift-eeg    roll the EEG half a trial in time. Spectrum, electrode pattern and listener
+                   identity all survive; only the alignment to the audio is destroyed. This is the
+                   sharp one -- it asks whether the score comes from time-locking or from something
+                   static about the recording.
+      shuffle-eeg  give each trial another trial's EEG entirely. Nothing about the pairing is real,
+                   so anything above chance here is a property of the audio or of the scoring.
+    """
+    if mode == "shift-eeg":
+        return [{**r, "eeg": np.roll(r["eeg"], r["eeg"].shape[1] // 2, axis=1)} for r in recs]
+    if mode == "shuffle-eeg":
+        idx = rng.permutation(len(recs))
+        for i in range(len(idx)):            # a derangement: no trial keeps its own EEG
+            if idx[i] == i:
+                j = (i + 1) % len(idx)
+                idx[i], idx[j] = idx[j], idx[i]
+        out = []
+        for i, r in enumerate(recs):
+            donor = recs[idx[i]]
+            n = min(r["y"].shape[-1], donor["eeg"].shape[1])
+            out.append({**r, "eeg": donor["eeg"][:, :n], "y": r["y"][..., :n]})
+        return out
+    raise ValueError(f"unknown control {mode}")
+
+
 def train_one(train, val, args, device, rng, init=None):
     model = build(args.model, train[0]["eeg"].shape[0], args.dim, args.channel_drop).to(device)
     if init:
@@ -126,6 +157,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--patience", type=int, default=8)
     ap.add_argument("--init", default=None)
     ap.add_argument("--windows", default="5,10,30")
+    ap.add_argument("--controls", default="",
+                    help="comma-separated test-time controls, e.g. shift-eeg,shuffle-eeg")
     ap.add_argument("--tag", default="cv")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args(argv)
@@ -187,7 +220,9 @@ def main(argv: list[str] | None = None) -> int:
     groups = sorted({r[key] for r in recs})
     folds = np.array_split(np.array(groups, dtype=object), min(args.cv, len(groups)))
     sub_folds = np.array_split(np.array(subs, dtype=object), len(folds)) if args.cv_by == "both" else None
+    control_modes = [c for c in args.controls.split(",") if c]
     results, meta = {}, []
+    controls: dict[str, dict] = {c: {} for c in control_modes}
     for k, test_g in enumerate(folds):
         test_g = set(test_g)
         rest = [g for g in groups if g not in test_g]
@@ -224,11 +259,28 @@ def main(argv: list[str] | None = None) -> int:
                 results[s] = {kk: (results[s][kk] + r[kk]) / 2 for kk in r}
             else:
                 results[s] = r
-        out.write_text(json.dumps({"args": vars(args), "folds": meta, "per_listener": results}, indent=1))
+        for mode in control_modes:
+            cres = per_listener(model, control_recs(test, mode, rng), windows, device)
+            for s, r in cres.items():
+                if s in controls[mode]:
+                    controls[mode][s] = {kk: (controls[mode][s][kk] + r[kk]) / 2 for kk in r}
+                else:
+                    controls[mode][s] = r
+            log.info("  control %-12s %s", mode,
+                     {kk: round(float(np.mean([v[kk] for v in cres.values()])), 3)
+                      for kk in windows and cres[next(iter(cres))]})
+        payload = {"args": vars(args), "folds": meta, "per_listener": results}
+        if control_modes:
+            payload["controls"] = controls
+        out.write_text(json.dumps(payload, indent=1))
 
     print(f"\n=== {args.tag}: {args.model}, {len(folds)}-fold CV held out by {args.cv_by}, "
           f"{len(results)} listeners")
     print(summarise(results, windows))
+    for mode, res in controls.items():
+        if res:
+            print(f"\ncontrol [{mode}] — the same model, the same audio, the EEG broken:")
+            print(summarise(res, windows))
     print(f"wrote {out}")
     return 0
 

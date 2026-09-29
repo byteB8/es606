@@ -53,6 +53,22 @@ def music_trials(path: Path, feats: dict, kind: str, band=None):
         yield song, zscore(eeg), zscore(y)
 
 
+def openmiir_trials(path: Path, feats_by_version: dict, kind: str, band=None):
+    """OpenMIIR perception trials. Already on the speech montage, so nothing is interpolated."""
+    d = np.load(path, allow_pickle=True)
+    feats = feats_by_version[str(d["version"])]
+    for m in json.loads(str(d["meta"])):
+        eeg = d[m["key"]].astype(np.float64)
+        y = feats.get(f"{kind}{m['stimulus']:02d}")
+        if y is None:
+            continue
+        n = min(eeg.shape[1], len(y))
+        eeg, y = eeg[:, :n], y[:n].astype(np.float64)
+        if band:
+            eeg, y = bandpass(eeg, *band), bandpass(y[None], *band)[0]
+        yield m["stimulus"], zscore(eeg), zscore(y)
+
+
 def evaluate(trials, w, windows) -> dict:
     rs, mm = [], {f"{x:g}s": [0, 0] for x in windows}
     for eeg, y in trials:

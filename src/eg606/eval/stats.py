@@ -22,6 +22,7 @@ import argparse
 import itertools
 import json
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -145,9 +146,17 @@ class Table:
                           "alternative": alternative, "note": note})
 
     def finish(self) -> list[dict]:
-        if self.rows:
-            for row, q in zip(self.rows, bh([r["p"] for r in self.rows])):
-                row["q"] = q
+        """Correct only the rows that actually state a hypothesis.
+
+        Some rows are descriptive -- "which shift did the sweep select" is a reported quantity, not
+        a test -- and carry no p-value. Including them would both inflate the family size and, with
+        a NaN in the sort, corrupt every other row's q.
+        """
+        tested = [r for r in self.rows if np.isfinite(r.get("p", float("nan")))]
+        for row, q in zip(tested, bh([r["p"] for r in tested])):
+            row["q"] = q
+        for row in self.rows:
+            row.setdefault("q", float("nan"))
         return self.rows
 
 
@@ -222,6 +231,32 @@ def collect(root: Path) -> Table:
             if band == [4.0, 8.0]:
                 t.add_groups("latency", f"TRF peak, {short} minus speech, {tag}",
                              r["peaks_ms"], ref["peaks_ms"], note="ms")
+
+    # --- OpenMIIR: the speech decoder applied with no montage interpolation at all
+    for path in sorted(root.rglob("openmiir/latency_*.json")):
+        d = json.loads(path.read_text())
+        band = d.get("band") or [0.5, 32.0]
+        tag = f"{band[0]:g}-{band[1]:g} Hz"
+        sweep = d.get("sweep", [])
+        if not sweep:
+            continue
+        # window keys look like "3s"; "shift_ms" also ends in "s", so match the shape properly
+        wins = sorted((k for k in sweep[0] if re.fullmatch(r"\d+(\.\d+)?s", k)),
+                      key=lambda k: float(k[:-1]))
+        if not wins:
+            continue
+        win = wins[-1]
+        best = max(sweep, key=lambda r: r.get(win, 0))
+        at_zero = next((r for r in sweep if r["shift_ms"] == 0), None)
+        t.rows.append({"family": "latency",
+                       "row": f"shift chosen by the sweep, OpenMIIR, {tag}",
+                       "n": 0, "mean": best["shift_ms"], "baseline": 0.0,
+                       "diff": best["shift_ms"], "ci95_diff": [float("nan")] * 2,
+                       "above": 0, "p": float("nan"), "exact": False,
+                       "alternative": "two-sided",
+                       "note": f"ms; {win} acc {best.get(win, float('nan')):.3f}, "
+                               f"unshifted {at_zero.get(win, float('nan')):.3f}"
+                               if at_zero else "ms"})
 
     # --- match-mismatch decoding: each window against the 0.5 chance of a two-way choice
     for name, label in (("protocol_none_onset.json", "linear, onset"),
@@ -302,10 +337,16 @@ def main(argv: list[str] | None = None) -> int:
                   f"{'95% CI':>18}{'p':>10}{'q':>10}")
         ci = r["ci95_diff"]
         star = "*" if r["exact"] else " "
+        ci_s = ("        descriptive" if not np.isfinite(ci[0])
+                else f"  [{ci[0]:+6.3f},{ci[1]:+6.3f}]")
+        p_s = "        -" if not np.isfinite(r["p"]) else f"{r['p']:>9.2g}"
+        q_s = "        -" if not np.isfinite(r["q"]) else f"{r['q']:>9.2g}"
         print(f"  {r['row']:<52}{r['n']:>3}{r['mean']:>8.3f}{r['baseline']:>8.3f}"
-              f"{r['diff']:>+8.3f}  [{ci[0]:+6.3f},{ci[1]:+6.3f}]{r['p']:>9.2g}{star}{r['q']:>9.2g}")
-    sig = sum(r["q"] < 0.05 for r in rows)
-    print(f"\n{sig} of {len(rows)} rows survive correction at q < 0.05")
+              f"{r['diff']:>+8.3f}{ci_s}{p_s}{star}{q_s}")
+    tested = [r for r in rows if np.isfinite(r["q"])]
+    sig = sum(r["q"] < 0.05 for r in tested)
+    print(f"\n{sig} of {len(tested)} tested rows survive correction at q < 0.05 "
+          f"({len(rows) - len(tested)} descriptive rows not corrected)")
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(json.dumps(rows, indent=1))
