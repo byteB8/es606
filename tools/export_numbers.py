@@ -28,9 +28,15 @@ ROWS = {
 
 
 def sci(q: float) -> str:
-    """0.00059 -> 5.9\\times10^{-4}; 0.062 -> 0.062. Plain decimals above 0.01 read better."""
+    """0.00059 -> 5.9\\times10^{-4}; 0.0505 -> 0.0505; 0.53 -> 0.53.
+
+    Three significant figures between 0.01 and 0.1: a value like 0.0505 rounded to "0.05" reads as
+    passing a 0.05 threshold it actually misses.
+    """
+    if q >= 0.1:
+        return f"{q:.2f}"
     if q >= 0.01:
-        return f"{q:.3f}".rstrip("0").rstrip(".") if q < 0.1 else f"{q:.2f}"
+        return f"{q:.3g}"
     m, e = f"{q:.1e}".split("e")
     return f"{m}\\times10^{{{int(e)}}}"
 

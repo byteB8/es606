@@ -304,7 +304,7 @@ def sweep_figure(root: Path, out: Path) -> None:
     ax.axvline(0, color="0.6", lw=0.8)
     ax.set_xlabel("shift applied to the music (ms)" if STYLE["paper"]
                   else "shift applied to the music (ms; positive = music treated as later)")
-    ax.set_ylabel("match-mismatch accuracy")
+    ax.set_ylabel("match\u2013mismatch accuracy")
     if not STYLE["paper"]:
         ax.set_title("One speech decoder, three music datasets\n"
                      "(dotted lines: the shift each dataset selects)", fontsize=10)
@@ -352,7 +352,7 @@ def scaling_figure(root: Path, out: Path) -> None:
         ax.set_xlabel("music training data kept")
         ax.set_title(f"{win} windows", fontsize=10)
         ax.spines[["top", "right"]].set_visible(False)
-    axes[0].set_ylabel("match-mismatch accuracy")
+    axes[0].set_ylabel("match\u2013mismatch accuracy")
     axes[0].legend(frameon=False, fontsize=8)
     fig.suptitle("Speech pretraining as music data is withheld: the gain does not grow "
                  "when data is scarce", fontsize=10)

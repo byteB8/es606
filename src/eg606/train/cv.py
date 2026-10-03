@@ -69,14 +69,15 @@ def control_recs(recs: list[dict], mode: str, rng) -> list[dict]:
     if mode == "shift-eeg":
         return [{**r, "eeg": np.roll(r["eeg"], r["eeg"].shape[1] // 2, axis=1)} for r in recs]
     if mode == "shuffle-eeg":
-        idx = rng.permutation(len(recs))
-        for i in range(len(idx)):            # a derangement: no trial keeps its own EEG
-            if idx[i] == i:
-                j = (i + 1) % len(idx)
-                idx[i], idx[j] = idx[j], idx[i]
+        # The donor must come from a different *stimulus*, not merely a different trial. Another
+        # repetition of the same Bach chorale, or another listener's recording of the same song,
+        # carries EEG that is genuinely locked to this audio, so pairing with it breaks nothing.
         out = []
-        for i, r in enumerate(recs):
-            donor = recs[idx[i]]
+        for r in recs:
+            pool = [d for d in recs if d["song"] != r["song"]]
+            if not pool:
+                raise ValueError("shuffle-eeg needs test trials from at least two stimuli")
+            donor = pool[rng.integers(len(pool))]
             n = min(r["y"].shape[-1], donor["eeg"].shape[1])
             out.append({**r, "eeg": donor["eeg"][:, :n], "y": r["y"][..., :n]})
         return out

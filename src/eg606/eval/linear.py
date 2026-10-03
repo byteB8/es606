@@ -52,7 +52,7 @@ def solve(xtx: np.ndarray, xty: np.ndarray, lam: float) -> np.ndarray:
     return cho_solve(cho_factor(xtx + lam * np.eye(len(xtx))), xty)
 
 
-def deranged(segments, rng, alt_targets=None):
+def deranged(segments, rng, alt_targets=None, stimuli=None):
     """Break the correspondence between each EEG segment and its audio, changing nothing else.
 
     Match-mismatch can be solved without reading the EEG at all if the scoring prefers one
@@ -71,6 +71,15 @@ def deranged(segments, rng, alt_targets=None):
     if alt_targets:
         for eeg, _ in segments:
             y = alt_targets[rng.integers(len(alt_targets))]
+            n = min(eeg.shape[1], len(y))
+            out.append((eeg[:, :n], y[:n]))
+        return out
+    if stimuli is not None:
+        # another hearing of the same stimulus carries EEG genuinely locked to this audio, so the
+        # donor has to come from a different stimulus, not merely a different trial
+        for i, (_, y) in enumerate(segments):
+            pool = [j for j in range(len(segments)) if stimuli[j] != stimuli[i]]
+            eeg = segments[pool[rng.integers(len(pool))]][0]
             n = min(eeg.shape[1], len(y))
             out.append((eeg[:, :n], y[:n]))
         return out

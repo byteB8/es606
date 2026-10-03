@@ -44,15 +44,18 @@ pair every audio target with a *different* trial's EEG, change nothing else, and
 |---|---|---|---|---|
 | linear decoder, held-out listener | 30 s | 0.669 | **0.490** | **+0.179** |
 | linear decoder, held-out song | 30 s | 0.685 | **0.492** | **+0.193** |
-| linear, zero-shot speech → music | 30 s | 0.610 | 0.496 | +0.114 |
-| contrastive model, held-out listener | 30 s | 0.612 | 0.582 | +0.030 (n.s.) |
-| contrastive model, Bach | 10 s | 0.977 | **0.939** | +0.038 |
+| linear, zero-shot speech → music | 30 s | 0.610 | 0.502 | +0.108 |
+| linear, zero-shot speech → OpenMIIR | 3 s | 0.624 | 0.592 | +0.032 |
+| contrastive model, held-out listener | 30 s | 0.618 | 0.584 | +0.034 (n.s.) |
+| contrastive model, Bach | 10 s | 0.987 | **0.961** | +0.026 |
 
-Two things leak. The imposter is always drawn *after* the true window, so the candidates differ
-systematically in position and a biased scorer exploits that blind — randomising the side drops the
-control to chance at 5 s. And when a stimulus is metronomic, as in the Bach set, every trial shares
-a beat grid, so any trial's EEG is beat-phase aligned to any trial's audio; there the control
-reaches 0.939.
+Two things leak, and scoring each pair from the audio alone, with no EEG at all, shows both. First,
+the imposter always comes *after* the true window, and these songs get busier as they go, so the true
+excerpt is the quieter one in 69% of pairs at 30 s. A scorer that responds to level can win without
+the EEG; the contrastive model does, and the correlation-based linear decoder cannot. Second, short
+trials leak: a 28 s Bach trial yields exactly one pair at 10 s, and there the control reaches 0.961
+even with EEG from a different melody. Short OpenMIIR fragments catch the linear decoder the same
+way (control 0.592 at 3 s).
 
 The linear decoder passes both splits with its control at chance. The contrastive model does not
 survive correction (q = 0.062) and is reported here as a negative result.

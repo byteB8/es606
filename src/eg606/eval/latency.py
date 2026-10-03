@@ -114,31 +114,35 @@ def main(argv: list[str] | None = None) -> int:
     log.info("speech decoder ready (lambda %.0e, held-out speech r %.4f)", best, best_r)
 
     # ---- music trials in the same montage
-    music, owners = [], []
+    music, owners, stims = [], [], []
     if args.music == "openmiir":
         om_root = derived_dir("openmiir")
         om_feats = {v: dict(np.load(om_root / f"audio_features_{v}.npz"))
                     for v in ("v1", "v2") if (om_root / f"audio_features_{v}.npz").exists()}
         for p in sorted(om_root.glob("sub-*.npz")):
-            for _, e, y in openmiir_trials(p, om_feats, args.feature, band):
+            for sid, e, y in openmiir_trials(p, om_feats, args.feature, band):
                 music.append((e, y))
                 owners.append(p.stem)
+                stims.append(sid)
     elif args.music == "bach":
         for p in sorted(derived_dir("bach_silence").glob("sub-*.npz")):
-            for e, y in bach_trials(p, band):
+            for k, (e, y) in enumerate(bach_trials(p, band)):
                 music.append((e, y))
                 owners.append(p.stem)
+                stims.append(None)
     else:
         for p in sorted(x for x in mu_root.glob("sub-*_bs64.npz") if re.match(r"^sub-\d+_bs64$", x.stem)):
-            for _, e, y in music_trials(p, mu_feats, args.feature, band):
+            for sid, e, y in music_trials(p, mu_feats, args.feature, band):
                 music.append((e, y))
                 owners.append(p.stem.split("_")[0])
+                stims.append(sid)
     preds = [(predict(e, w, len(y)), y) for e, y in music]
     log.info("%d music trials scored", len(music))
 
     control = None
     if args.control:
-        ctl = deranged(music, np.random.default_rng(0))
+        ctl = deranged(music, np.random.default_rng(0),
+                       stimuli=stims if all(x is not None for x in stims) else None)
         cpred = [(predict(e, w, len(y)), y) for e, y in ctl]
         control = {}
         for x in windows:
