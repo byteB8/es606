@@ -1,8 +1,8 @@
-# eg606 — decoding naturalistic music from EEG, across listeners
+# eg606: decoding naturalistic music from EEG, across listeners
 
-Can we tell *which music someone is hearing*, and *when*, from their EEG — for a listener the model
+Can we tell *which music someone is hearing*, and *when*, from their EEG, for a listener the model
 has never seen? This repository contains the full pipeline: dataset acquisition, preprocessing,
-linear baselines, a contrastive EEG↔audio model, and — the part that ended up mattering most — the
+linear baselines, a contrastive EEG↔audio model, and (the part that ended up mattering most) the
 controls that say which of those results are real.
 
 Course project for ES 606 (Computational Neuroscience), IIT Gandhinagar.
@@ -17,9 +17,9 @@ shows what it measures:
 
 | dataset | chance | within recording | on **silence** | same stimulus, other block | held-out listener |
 |---|---|---|---|---|---|
-| MUSIN-G (12 songs, n=20) | .083 | **.551 (6.6×)** | .200 (2.4×) | — | .083 (1.0×) |
-| NMED-T (10 songs, n=20) | .100 | **.838 (8.4×)** | .159 (1.6×) | — | .093 (0.9×) |
-| NMED-H (4 stimuli/listener, n=48) | .250 | **.785 (3.1×)** | — | **.271 (1.1×)** | .264 (1.1×) |
+| MUSIN-G (12 songs, n=20) | .083 | **.551 (6.6×)** | .200 (2.4×) | n/a | .083 (1.0×) |
+| NMED-T (10 songs, n=20) | .100 | **.838 (8.4×)** | .159 (1.6×) | n/a | .093 (0.9×) |
+| NMED-H (4 stimuli/listener, n=48) | .250 | **.785 (3.1×)** | n/a | **.271 (1.1×)** | .264 (1.1×) |
 
 The classifier "identifies" songs from the **silence before they start**, where no music is playing.
 NMED-H says the same thing from the other side: hold the stimulus fixed and change only the
@@ -32,7 +32,7 @@ Capacity buys leakage, not generalisation.
 ## 2. The time-locked alternative needs a control of its own
 
 A natural alternative, used widely for speech, is a time-locked **match–mismatch** task: given EEG and two candidate audio
-excerpts — the true one and an imposter from the same song a second later — decide which produced
+excerpts (the true one, and an imposter from the same song a second later), decide which produced
 it. Both candidates share the recording, so slow drift cannot separate them. Chance is 50%.
 
 That task can also be solved without reading the EEG at all. The test is a **derangement control**:
@@ -65,7 +65,7 @@ survive correction (q = 0.062) and is reported here as a negative result.
 ![One speech decoder, three music datasets](docs/figures/shift_sweeps.png)
 
 A decoder trained on **speech** transfers to music, but only when the two datasets agree about when
-the sound began. MUSIN-G's event markers lag its audio by about **62 ms** — the same estimate in
+the sound began. MUSIN-G's event markers lag its audio by about **62 ms**, the same estimate in
 every frequency band tested, which is what a fixed delay in a recording chain looks like and a
 neural latency difference is not. OpenMIIR, whose authors recorded a dedicated audio-onset marker
 and corrected for it, needs **0 ms** under the identical analysis, and its own measured
