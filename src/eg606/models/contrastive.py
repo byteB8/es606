@@ -85,7 +85,7 @@ class Matcher(nn.Module):
 
 @torch.no_grad()
 def match_mismatch_accuracy(model, eeg, target, window: int, sub: int, guard: int,
-                            device, batch: int = 256) -> tuple[int, int]:
+                            device, batch: int = 256, rng=None) -> tuple[int, int]:
     """Score a whole trial: matched audio vs an imposter from the same trial, `guard` samples later.
 
     A long window is scored by averaging similarities over `sub`-sample sub-windows, which is how
@@ -96,10 +96,14 @@ def match_mismatch_accuracy(model, eeg, target, window: int, sub: int, guard: in
     hits = total = 0
     starts = list(range(0, n - window + 1, window))
     for s in starts:
-        imp = s + window + guard
-        if imp + window > n:
-            imp = s - window - guard
-            if imp < 0:
+        # The imposter normally sits after the window, so the two candidates differ systematically
+        # in position and a scorer with any positional bias can exploit that without reading the
+        # EEG at all. Passing an rng picks the side at random, which removes the asymmetry.
+        later = True if rng is None else bool(rng.integers(2))
+        imp = s + window + guard if later else s - window - guard
+        if imp < 0 or imp + window > n:
+            imp = s - window - guard if later else s + window + guard
+            if imp < 0 or imp + window > n:
                 continue
         offs = list(range(0, window - sub + 1, sub))
         if not offs:

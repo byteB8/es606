@@ -24,7 +24,8 @@ from pathlib import Path
 import numpy as np
 from scipy.signal import butter, filtfilt
 
-from eg606.eval.linear import FS, accumulate, match_mismatch, predict, solve, zscore
+from eg606.eval.linear import (FS, accumulate, deranged, match_mismatch, predict,
+                               solve, zscore)
 from eg606.paths import derived_dir
 
 log = logging.getLogger(__name__)
@@ -103,10 +104,10 @@ def held_out_split(trials, split, groups, held):
     return train, test
 
 
-def run_group_split(split, trials, stats, windows):
+def run_group_split(split, trials, stats, windows, rng=None):
     key = "sub" if split == "loso" else "song"
     groups = sorted(stats)
-    results = {}
+    results, controls = {}, {}
     for held in groups:
         others = [g for g in groups if g != held]
         val_g, fit_g = others[:3], others[3:]
@@ -122,7 +123,17 @@ def run_group_split(split, trials, stats, windows):
         results[str(held)] = score(test, w, windows)
         log.info("%s %-10s r=%+.4f %s (lam %.0e)", split, held, results[str(held)][0],
                  {k: round(v, 3) for k, v in results[str(held)][1].items()}, lam)
-    return results
+        if rng is not None:
+            # a held-out song gives every test segment the same audio, so the swap must come
+            # from elsewhere; a held-out listener already spans songs
+            alt = ([t["y"] for t in trials if t[key] != held][:200]
+                   if key == "song" else None)
+            ctrl = deranged(test, rng, alt)
+            if ctrl:
+                controls[str(held)] = score(ctrl, w, windows)
+                log.info("%s %-10s CONTROL %s", split, held,
+                         {k: round(v, 3) for k, v in controls[str(held)][1].items()})
+    return (results, controls) if rng is not None else results
 
 
 def run_naive(trials, windows, rng):
@@ -157,6 +168,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--windows", default="5,10,30")
     ap.add_argument("--band", default=None, help="e.g. 4,8 to restrict EEG and target to 4-8 Hz")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--control", action="store_true",
+                    help="also score with each target paired to another segment's EEG")
     ap.add_argument("--out", default=None)
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -164,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
     windows = [float(w) for w in args.windows.split(",")]
     band = tuple(float(x) for x in args.band.split(",")) if args.band else None
     rng = np.random.default_rng(args.seed)
+    ctl_rng = np.random.default_rng(args.seed + 1) if args.control else None
 
     trials = load_trials(args.variant, args.feature, band)
     log.info("%d trials, %d channels, band=%s", len(trials), trials[0]["eeg"].shape[0], band)
@@ -178,12 +192,18 @@ def main(argv: list[str] | None = None) -> int:
         if split == "naive":
             res = run_naive(trials, windows, rng)
         elif split == "loso":
-            res = run_group_split("loso", trials, by_sub, windows)
+            res = run_group_split("loso", trials, by_sub, windows, ctl_rng)
         elif split == "song":
-            res = run_group_split("song", trials, by_song, windows)
+            res = run_group_split("song", trials, by_song, windows, ctl_rng)
         else:
             ap.error(f"unknown split {split}")
+        ctrl = None
+        if ctl_rng is not None and isinstance(res, tuple):
+            res, ctrl = res
         summary["splits"][split] = {k: {"r": v[0], "mm": v[1]} for k, v in res.items()}
+        if ctrl:
+            summary.setdefault("controls", {})[split] = {
+                k: {"r": v[0], "mm": v[1]} for k, v in ctrl.items()}
 
     print(f"\n=== protocol comparison  variant={args.variant} feature={args.feature} band={band}")
     print(f"{'split':<8}{'folds':>6}{'r':>9}" + "".join(f"{f'{w:g}s':>9}" for w in windows))
@@ -191,6 +211,12 @@ def main(argv: list[str] | None = None) -> int:
         r = np.nanmean([f["r"] for f in folds.values()])
         row = "".join(f"{np.nanmean([f['mm'][f'{w:g}s'] for f in folds.values()]):9.3f}" for w in windows)
         print(f"{split:<8}{len(folds):>6}{r:9.4f}{row}")
+        ctrl = summary.get("controls", {}).get(split)
+        if ctrl:
+            cr = float(np.nanmean([v["r"] for v in ctrl.values()]))
+            crow = "".join(
+                f"{np.nanmean([v['mm'][f'{w:g}s'] for v in ctrl.values()]):9.3f}" for w in windows)
+            print(f"{'  ^ctrl':<8}{len(ctrl):>6}{cr:9.4f}{crow}")
     if args.out:
         Path(args.out).write_text(json.dumps(summary, indent=1, default=float))
         print(f"\nwrote {args.out}")

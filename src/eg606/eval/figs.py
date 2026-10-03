@@ -37,6 +37,89 @@ def _load(root: Path, name: str):
     return json.loads(hits[-1].read_text()) if hits else None
 
 
+def _mean_mm(per_fold: dict, win: str) -> float:
+    vals = [v["mm"][win] for v in per_fold.values() if win in v.get("mm", {})]
+    return float(np.nanmean(vals)) if vals else float("nan")
+
+
+def collect_controls(root: Path) -> list[dict]:
+    """Every result that has a matched derangement control, as (label, real, control).
+
+    A match-mismatch score is only interpretable next to the score the same model gets when the
+    EEG no longer corresponds to the audio. Collecting both in one place is the point of the
+    figure: the gap is the claim, and the control height is the leak.
+    """
+    rows = []
+    prot = _load(root, "protocol_control.json")
+    if prot and prot.get("controls"):
+        for split, label in (("loso", "linear, held-out listener"),
+                             ("song", "linear, held-out song")):
+            if split in prot["splits"] and split in prot["controls"]:
+                rows.append({"label": label, "window": "30s",
+                             "real": _mean_mm(prot["splits"][split], "30s"),
+                             "control": _mean_mm(prot["controls"][split], "30s")})
+    # both datasets write a file of the same name, so match on the directory too: an rglob that
+    # takes the last hit would quietly score MUSIN-G's row from OpenMIIR's file
+    for name, label, win in (("bhaskar/latency_broad_ctl.json",
+                              "linear zero-shot, speech->MUSIN-G", "30s"),
+                             ("openmiir/latency_broad_ctl.json",
+                              "linear zero-shot, speech->OpenMIIR", "3s")):
+        d = _load(root, name)
+        if not d or not d.get("control"):
+            continue
+        sweep = d.get("sweep", [])
+        best = max(sweep, key=lambda r: r.get(win, 0)) if sweep else {}
+        real, ctrl = best.get(win, float("nan")), d["control"].get(win, float("nan"))
+        if np.isfinite(real) and np.isfinite(ctrl):
+            rows.append({"label": label, "window": win, "real": real, "control": ctrl})
+    for name, label, win in (("cv_music_control.json", "deep v2, held-out listener", "30s"),
+                             ("cv_bach_control.json", "deep v2, Bach", "10s")):
+        d = _load(root, name)
+        if not d or "controls" not in d:
+            continue
+        real = float(np.nanmean([v[win] for v in d["per_listener"].values() if win in v]))
+        ctl = d["controls"].get("shuffle-eeg", {})
+        ctrl = float(np.nanmean([v[win] for v in ctl.values() if win in v])) if ctl else float("nan")
+        if np.isfinite(real) and np.isfinite(ctrl):
+            rows.append({"label": label, "window": win, "real": real, "control": ctrl})
+    return rows
+
+
+def controls_figure(root: Path, out: Path) -> None:
+    """What each result scores, beside what it scores with the EEG destroyed."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    rows = collect_controls(root)
+    if not rows:
+        log.warning("no control results; skipping the controls figure")
+        return
+    rows.sort(key=lambda r: (r["real"] - r["control"]), reverse=True)
+    y = np.arange(len(rows))
+    fig, ax = plt.subplots(figsize=(8.6, 0.62 * len(rows) + 2.2))
+    ax.barh(y + 0.19, [r["real"] for r in rows], 0.36, color="#3d6fb4", label="as reported")
+    ax.barh(y - 0.19, [r["control"] for r in rows], 0.36, color="#c0392b",
+            label="same model, EEG no longer matches the audio")
+    ax.axvline(0.5, color="k", ls="--", lw=1)
+    for i, r in enumerate(rows):
+        ax.text(max(r["real"], r["control"]) + 0.008, i,
+                f"genuine {r['real'] - r['control']:+.3f}", va="center", fontsize=8)
+    ax.set_yticks(y)
+    ax.set_yticklabels([f"{r['label']}  ({r['window']})" for r in rows], fontsize=8.5)
+    ax.set_xlim(0.45, 1.06)
+    ax.set_xlabel("match-mismatch accuracy (dashed line: chance)")
+    ax.set_title("Every match-mismatch result beside its own control\n"
+                 "A bar pair that nearly touches is a result the EEG is barely contributing to",
+                 fontsize=10)
+    ax.legend(frameon=False, fontsize=8, loc="lower right")
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.invert_yaxis()
+    fig.tight_layout()
+    fig.savefig(out / "controls.png", dpi=180)
+    log.info("wrote %s", out / "controls.png")
+
+
 def leakage_figure(root: Path, out: Path) -> None:
     """Accuracy as a multiple of chance, per protocol, per dataset, linear vs CNN."""
     import matplotlib
@@ -248,6 +331,7 @@ def main(argv: list[str] | None = None) -> int:
     root, out = Path(args.results), Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     leakage_figure(root, out)
+    controls_figure(root, out)
     latency_figure(root, out)
     sweep_figure(root, out)
     scaling_figure(root, out)

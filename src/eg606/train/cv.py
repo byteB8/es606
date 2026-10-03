@@ -35,7 +35,7 @@ def build(kind: str, n_ch: int, dim: int, channel_drop: float):
 
 
 @torch.no_grad()
-def per_listener(model, recs, windows, device):
+def per_listener(model, recs, windows, device, imposter_rng=None):
     out = {}
     for sub in sorted({r["sub"] for r in recs}):
         row = {}
@@ -43,7 +43,8 @@ def per_listener(model, recs, windows, device):
             hits = total = 0
             for r in (x for x in recs if x["sub"] == sub):
                 h, t = match_mismatch_accuracy(model, torch.from_numpy(r["eeg"]),
-                                               torch.from_numpy(r["y"]), int(w * FS), SUB, GUARD, device)
+                                               torch.from_numpy(r["y"]), int(w * FS), SUB, GUARD,
+                                               device, rng=imposter_rng)
                 hits += h
                 total += t
             row[f"{w:g}s"] = hits / total if total else float("nan")
@@ -157,6 +158,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--patience", type=int, default=8)
     ap.add_argument("--init", default=None)
     ap.add_argument("--windows", default="5,10,30")
+    ap.add_argument("--symmetric-imposter", action="store_true",
+                    help="draw the imposter before or after at random, removing the positional "
+                         "asymmetry a biased scorer could exploit")
     ap.add_argument("--controls", default="",
                     help="comma-separated test-time controls, e.g. shift-eeg,shuffle-eeg")
     ap.add_argument("--tag", default="cv")
@@ -249,7 +253,8 @@ def main(argv: list[str] | None = None) -> int:
                  k + 1, len(folds), key, sorted(test_g), sorted(val_g), len(train),
                  100 * args.train_fraction, len(test))
         model, best_epoch, hist = train_one(train, val, args, device, rng, args.init)
-        fold_res = per_listener(model, test, windows, device)
+        imp_rng = np.random.default_rng(args.seed + 7) if args.symmetric_imposter else None
+        fold_res = per_listener(model, test, windows, device, imp_rng)
         meta.append({"fold": k, "held_out": sorted(map(str, test_g)), "val": sorted(map(str, val_g)),
                      "cv_by": args.cv_by, "best_epoch": best_epoch, "history": hist})
         for s, r in fold_res.items():
@@ -260,7 +265,9 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 results[s] = r
         for mode in control_modes:
-            cres = per_listener(model, control_recs(test, mode, rng), windows, device)
+            cres = per_listener(model, control_recs(test, mode, rng), windows, device,
+                                np.random.default_rng(args.seed + 7) if args.symmetric_imposter
+                                else None)
             for s, r in cres.items():
                 if s in controls[mode]:
                     controls[mode][s] = {kk: (controls[mode][s][kk] + r[kk]) / 2 for kk in r}

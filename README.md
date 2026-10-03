@@ -2,46 +2,71 @@
 
 Can we tell *which music someone is hearing*, and *when*, from their EEG — for a listener the model
 has never seen? This repository contains the full pipeline: dataset acquisition, preprocessing,
-linear baselines, a contrastive EEG↔audio model, and the evaluation protocols.
+linear baselines, a contrastive EEG↔audio model, and — the part that ended up mattering most — the
+controls that say which of those results are real.
 
 Course project for ES 606 (Computational Neuroscience), IIT Gandhinagar.
 
-## Why the task is posed this way
+## 1. The usual protocol measures the recording, not the music
 
 Published EEG music-identification results are usually obtained by splitting *one continuous
-recording* into training and test windows. Reproducing that protocol here shows what it measures:
+recording* into training and test windows. Reproducing that protocol across three public datasets
+shows what it measures:
 
-| Protocol (same data, same features, same classifier) | 12-way song ID (chance 8.3%) |
-|---|---|
-| within-listener, random windows — the usual protocol | **55.1%** |
-| the same, on the **10 s of silence before each song** | **20.0%** |
-| leave-one-listener-out | **8.3%** (chance) |
+![Song identification under five protocols, three datasets, two model families](docs/figures/leakage.png)
 
-A classifier "identifies" songs from silence, where no music is playing: the protocol reads block
-identity, not the response to music. So this project uses a **time-locked match–mismatch** task —
-given a window of EEG and two candidate audio excerpts (the true one and an imposter from the same
-song one second later), decide which produced it. Both candidates share the recording, so slow drift
-cannot separate them. Chance is 50%.
+| dataset | chance | within recording | on **silence** | same stimulus, other block | held-out listener |
+|---|---|---|---|---|---|
+| MUSIN-G (12 songs, n=20) | .083 | **.551 (6.6×)** | .200 (2.4×) | — | .083 (1.0×) |
+| NMED-T (10 songs, n=20) | .100 | **.838 (8.4×)** | .159 (1.6×) | — | .093 (0.9×) |
+| NMED-H (4 stimuli/listener, n=48) | .250 | **.785 (3.1×)** | — | **.271 (1.1×)** | .264 (1.1×) |
 
-Under that formulation, with all training listeners held out:
+The classifier "identifies" songs from the **silence before they start**, where no music is playing.
+NMED-H says the same thing from the other side: hold the stimulus fixed and change only the
+recording block, and 51 points of accuracy disappear. Held-out listeners sit at chance everywhere.
 
-| | 5 s | 10 s | 30 s |
-|---|---|---|---|
-| linear decoder (mTRF-style), new listener | 0.576 | 0.608 | 0.700 |
-| linear decoder, **new song** | 0.575 | 0.600 | 0.697 |
-| contrastive model, new listener (5-fold CV) | 0.584 | 0.599 | 0.688 |
+A *stronger* model makes this worse, not better. A spectrogram CNN reaches 8.1× chance within a
+recording and reads 3.0× from silence, while generalising to a new listener exactly as badly.
+Capacity buys leakage, not generalisation.
 
-The signal lives in 4–8 Hz (theta), note onsets beat the loudness envelope, and light cleaning
-(bad-channel interpolation) helps while ICA-based artifact removal hurts.
+## 2. The protocol proposed to fix it needs a control of its own
 
-## Cross-dataset timing matters
+The usual remedy is a time-locked **match–mismatch** task: given EEG and two candidate audio
+excerpts — the true one and an imposter from the same song a second later — decide which produced
+it. Both candidates share the recording, so slow drift cannot separate them. Chance is 50%.
 
-A decoder trained on **speech** listening transfers to music — but only when the two datasets agree
-about when the sound began. One dataset's event markers lag its audio by ~62 ms; uncorrected, a
-speech-trained decoder scores *below* chance on it (0.414), because in theta a 62 ms offset is about
-a third of a cycle. Correcting it recovers 0.664, and the correction helps only models carrying
-knowledge from the other dataset (+3.3 points, p=0.0007) and not models trained on that data alone
-(no effect) — the signature of a timing offset rather than a modelling artefact.
+That task can also be solved without reading the EEG at all. The test is a **derangement control**:
+pair every audio target with a *different* trial's EEG, change nothing else, and score again.
+
+![Every match–mismatch result beside its own control](docs/figures/controls.png)
+
+| result | window | as reported | control | **genuine** |
+|---|---|---|---|---|
+| linear decoder, held-out listener | 30 s | 0.669 | **0.490** | **+0.179** |
+| linear decoder, held-out song | 30 s | 0.685 | **0.492** | **+0.193** |
+| linear, zero-shot speech → music | 30 s | 0.610 | 0.496 | +0.114 |
+| contrastive model, held-out listener | 30 s | 0.612 | 0.582 | +0.030 (n.s.) |
+| contrastive model, Bach | 10 s | 0.977 | **0.939** | +0.038 |
+
+Two things leak. The imposter is always drawn *after* the true window, so the candidates differ
+systematically in position and a biased scorer exploits that blind — randomising the side drops the
+control to chance at 5 s. And when a stimulus is metronomic, as in the Bach set, every trial shares
+a beat grid, so any trial's EEG is beat-phase aligned to any trial's audio; there the control
+reaches 0.939.
+
+The linear decoder passes both splits with its control at chance. The contrastive model does not
+survive correction (q = 0.062) and is reported here as a negative result.
+
+## 3. Cross-dataset timing
+
+![One speech decoder, three music datasets](docs/figures/shift_sweeps.png)
+
+A decoder trained on **speech** transfers to music, but only when the two datasets agree about when
+the sound began. MUSIN-G's event markers lag its audio by about **62 ms** — the same estimate in
+every frequency band tested, which is what a fixed delay in a recording chain looks like and a
+neural latency difference is not. OpenMIIR, whose authors recorded a dedicated audio-onset marker
+and corrected for it, needs **0 ms** under the identical analysis, and its own measured
+trigger-to-audio latency is 11.7 ms.
 
 ## Layout
 
@@ -72,7 +97,8 @@ python -m eg606.data.import_local --list       # datasets needing a browser down
 | [MUSIN-G](https://openneuro.org/datasets/ds003774) | 20 listeners, 12 songs, 128-ch EGI | included |
 | [SparrKULee](https://rdr.kuleuven.be/dataset.xhtml?persistentId=doi:10.48804/K3VSND) | 85 listeners, 168 h speech, 64-ch BioSemi | included |
 | [Bach: music of silence](https://datadryad.org/dataset/doi:10.5061/dryad.dbrv15f0j) | 21 musicians, 4 melodies × 11 repeats | included |
-| [NMED-T](https://purl.stanford.edu/jn859kj8079) / [NMED-H](https://purl.stanford.edu/sd922db3535) | naturalistic music EEG | metadata only |
+| [NMED-T](https://purl.stanford.edu/jn859kj8079) / [NMED-H](https://purl.stanford.edu/sd922db3535) | naturalistic music EEG, 20 / 48 listeners | metadata only |
+| [OpenMIIR](https://github.com/sstober/openmiir) | 10 listeners, 12 fragments, 64-ch BioSemi | stimuli included; EEG by BitTorrent only |
 
 Set `EG606_DATA` to choose where data lives (default: the NAS path in `eg606/paths.py`).
 

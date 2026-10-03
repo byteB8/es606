@@ -258,6 +258,34 @@ def collect(root: Path) -> Table:
                                f"unshifted {at_zero.get(win, float('nan')):.3f}"
                                if at_zero else "ms"})
 
+    # --- controls: every match-mismatch result against its own deranged version.
+    # A score is only worth the gap between it and what the same model gets once the EEG no longer
+    # corresponds to the audio, so these rows, not the raw accuracies, are what may be claimed.
+    prot = _load(root, "protocol_control.json")
+    if prot and prot.get("controls"):
+        for split, label in (("loso", "linear, held-out listener"),
+                             ("song", "linear, held-out song")):
+            real, ctrl = prot["splits"].get(split), prot["controls"].get(split)
+            if not (real and ctrl):
+                continue
+            for win in sorted(set(_per_window(real)), key=lambda k: float(k[:-1])):
+                folds = sorted(set(real) & set(ctrl))
+                t.add("controls", f"{label} minus its control at {win}",
+                      [real[f]["mm"][win] for f in folds],
+                      [ctrl[f]["mm"][win] for f in folds], note="paired over folds")
+    for name, label, win in (("cv_music_control.json", "deep v2, held-out listener", "30s"),
+                             ("cv_bach_control.json", "deep v2, Bach", "10s"),
+                             ("cv_music_symmetric.json",
+                              "deep v2, symmetric imposter", "30s")):
+        d = _load(root, name)
+        ctl = (d or {}).get("controls", {}).get("shuffle-eeg")
+        if not ctl:
+            continue
+        subs = sorted(set(d["per_listener"]) & set(ctl))
+        t.add("controls", f"{label} minus its control at {win}",
+              [d["per_listener"][s][win] for s in subs], [ctl[s][win] for s in subs],
+              note="paired over listeners")
+
     # --- match-mismatch decoding: each window against the 0.5 chance of a two-way choice
     for name, label in (("protocol_none_onset.json", "linear, onset"),
                         ("protocol_b0408.json", "linear, 4-8 Hz")):
@@ -320,7 +348,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     rows = collect(Path(args.results)).finish()
-    order = {"leakage": 0, "latency": 1, "decoding": 2, "transfer": 3}
+    order = {"leakage": 0, "controls": 1, "latency": 2, "decoding": 3, "transfer": 4}
     rows.sort(key=lambda r: order.get(r["family"], 9))
     if not rows:
         print("no results found")

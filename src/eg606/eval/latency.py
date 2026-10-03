@@ -24,7 +24,8 @@ from pathlib import Path
 import mne
 import numpy as np
 
-from eg606.eval.linear import FS, accumulate, match_mismatch, predict, solve, zscore
+from eg606.eval.linear import (FS, accumulate, deranged, match_mismatch, predict,
+                               solve, zscore)
 from eg606.eval.protocol import bandpass
 from eg606.eval.transfer import LAMBDAS, music_trials, openmiir_trials, speech_trials
 from eg606.paths import derived_dir
@@ -81,6 +82,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--windows", default="10,30")
     ap.add_argument("--music", default="musin_g", choices=["musin_g", "bach", "openmiir"],
                     help="which music dataset the speech decoder is applied to")
+    ap.add_argument("--control", action="store_true",
+                    help="also score with each target paired to another trial's EEG")
     ap.add_argument("--out", default=None)
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -132,6 +135,21 @@ def main(argv: list[str] | None = None) -> int:
                 owners.append(p.stem.split("_")[0])
     preds = [(predict(e, w, len(y)), y) for e, y in music]
     log.info("%d music trials scored", len(music))
+
+    control = None
+    if args.control:
+        ctl = deranged(music, np.random.default_rng(0))
+        cpred = [(predict(e, w, len(y)), y) for e, y in ctl]
+        control = {}
+        for x in windows:
+            hits = total = 0
+            for pr, yy in cpred:
+                h, t = match_mismatch(pr, yy, int(x * FS))
+                hits += h
+                total += t
+            control[f"{x:g}s"] = hits / total if total else float("nan")
+        log.info("CONTROL (mismatched EEG, no shift): %s",
+                 {k: round(v, 3) for k, v in control.items()})
 
     # ---- 1. shift sweep
     sweep = []
@@ -223,7 +241,7 @@ def main(argv: list[str] | None = None) -> int:
             "lags_ms": lags_ms.tolist(), "trf_speech": trf_speech.tolist(), "trf_music": trf_music.tolist(),
             "peak_ms": {"speech": float(peak_s), "music": float(peak_m)},
             "xcorr": xc, "best_align_ms": best_k / FS * 1000, "spatial_r": spatial,
-            "split_half": split_half}, indent=1))
+            "split_half": split_half, "control": control}, indent=1))
         print(f"\nwrote {args.out}")
     return 0
 
