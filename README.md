@@ -29,9 +29,9 @@ A *stronger* model makes this worse, not better. A spectrogram CNN reaches 8.1×
 recording and reads 3.0× from silence, while generalising to a new listener exactly as badly.
 Capacity buys leakage, not generalisation.
 
-## 2. The protocol proposed to fix it needs a control of its own
+## 2. The time-locked alternative needs a control of its own
 
-The usual remedy is a time-locked **match–mismatch** task: given EEG and two candidate audio
+A natural alternative, used widely for speech, is a time-locked **match–mismatch** task: given EEG and two candidate audio
 excerpts — the true one and an imposter from the same song a second later — decide which produced
 it. Both candidates share the recording, so slow drift cannot separate them. Chance is 50%.
 

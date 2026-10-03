@@ -30,6 +30,36 @@ COND_LABEL = {
 }
 ORDER = ["within_naive", "pooled_naive", "silence_naive", "cross_repetition",
          "loso", "loso_song", "silence_loso", "within_naive_shuffled"]
+# the long labels collide once the figure is drawn at print width
+COND_SHORT = {"within_naive": "within\nrecording", "pooled_naive": "pooled",
+              "cross_repetition": "other\nblock", "loso": "held-out\nlistener",
+              "loso_song": "held-out\nlistener", "silence_naive": "SILENCE",
+              "silence_loso": "silence,\nheld-out", "within_naive_shuffled": "shuffled\nlabels"}
+
+
+# IEEEtran at 10pt: a column is 3.5 in and the full text block 7.16 in. A figure drawn at screen
+# size and then scaled into a column shrinks its text to illegibility, so the paper variants are
+# drawn at final size with type that is already the right number of points.
+PAPER = {"column": 3.4, "full": 7.0}
+PAPER_RC = {"font.size": 7, "axes.titlesize": 7.5, "axes.labelsize": 7,
+            "xtick.labelsize": 6.5, "ytick.labelsize": 6.5, "legend.fontsize": 6.5,
+            "figure.dpi": 300, "savefig.dpi": 300, "savefig.bbox": "tight",
+            "savefig.pad_inches": 0.01, "axes.linewidth": 0.6,
+            "xtick.major.width": 0.6, "ytick.major.width": 0.6}
+STYLE = {"paper": False}
+
+
+def _save(fig, out: Path, stem: str) -> None:
+    """Write PNG for the README and, in paper mode, a vector PDF for LaTeX."""
+    fig.savefig(out / f"{stem}.png", dpi=180)
+    if STYLE["paper"]:
+        fig.savefig(out / f"{stem}.pdf")
+        log.info("wrote %s", out / f"{stem}.pdf")
+    log.info("wrote %s", out / f"{stem}.png")
+
+
+def _figsize(width: str, height: float):
+    return (PAPER[width] if STYLE["paper"] else {"column": 7.0, "full": 14.0}[width], height)
 
 
 def _load(root: Path, name: str):
@@ -97,7 +127,8 @@ def controls_figure(root: Path, out: Path) -> None:
         return
     rows.sort(key=lambda r: (r["real"] - r["control"]), reverse=True)
     y = np.arange(len(rows))
-    fig, ax = plt.subplots(figsize=(8.6, 0.62 * len(rows) + 2.2))
+    fig, ax = plt.subplots(figsize=_figsize(
+        "full", (0.26 * len(rows) + 0.95) if STYLE["paper"] else (0.62 * len(rows) + 2.2)))
     ax.barh(y + 0.19, [r["real"] for r in rows], 0.36, color="#3d6fb4", label="as reported")
     ax.barh(y - 0.19, [r["control"] for r in rows], 0.36, color="#c0392b",
             label="same model, EEG no longer matches the audio")
@@ -109,15 +140,15 @@ def controls_figure(root: Path, out: Path) -> None:
     ax.set_yticklabels([f"{r['label']}  ({r['window']})" for r in rows], fontsize=8.5)
     ax.set_xlim(0.45, 1.06)
     ax.set_xlabel("match-mismatch accuracy (dashed line: chance)")
-    ax.set_title("Every match-mismatch result beside its own control\n"
-                 "A bar pair that nearly touches is a result the EEG is barely contributing to",
-                 fontsize=10)
+    if not STYLE["paper"]:
+        ax.set_title("Every match-mismatch result beside its own control\n"
+                     "A bar pair that nearly touches is a result the EEG is barely contributing to",
+                     fontsize=10)
     ax.legend(frameon=False, fontsize=8, loc="lower right")
     ax.spines[["top", "right"]].set_visible(False)
     ax.invert_yaxis()
     fig.tight_layout()
-    fig.savefig(out / "controls.png", dpi=180)
-    log.info("wrote %s", out / "controls.png")
+    _save(fig, out, "controls")
 
 
 def leakage_figure(root: Path, out: Path) -> None:
@@ -135,7 +166,8 @@ def leakage_figure(root: Path, out: Path) -> None:
     titles = {"musin_g": "MUSIN-G (12 songs)", "nmed_t": "NMED-T (10 songs)",
               "nmed_h": "NMED-H (4 stimuli/listener)"}
 
-    fig, axes = plt.subplots(1, len(names), figsize=(4.6 * len(names), 5.0), sharey=True)
+    fig, axes = plt.subplots(1, len(names), figsize=_figsize("full", 2.5 if STYLE["paper"] else 5.0),
+                             sharey=True)
     axes = np.atleast_1d(axes)
     for ax, ds in zip(axes, names):
         r = lin[ds]
@@ -158,17 +190,21 @@ def leakage_figure(root: Path, out: Path) -> None:
                 ax.bar(xs, vals, 0.36, yerr=errs, capsize=2, color=color, label=label)
         ax.axhline(1, color="k", ls="--", lw=1)
         ax.set_xticks(x)
-        ax.set_xticklabels([COND_LABEL.get(c, c) for c in conds], fontsize=8,
-                           rotation=35, ha="right")
+        if STYLE["paper"]:
+            ax.set_xticklabels([COND_SHORT.get(c, c) for c in conds], fontsize=5.6,
+                               rotation=0, linespacing=0.95)
+        else:
+            ax.set_xticklabels([COND_LABEL.get(c, c) for c in conds], fontsize=8,
+                               rotation=35, ha="right")
         ax.set_title(titles.get(ds, ds), fontsize=10)
         ax.spines[["top", "right"]].set_visible(False)
     axes[0].set_ylabel("accuracy / chance")
     axes[0].legend(frameon=False, fontsize=8, loc="upper right")
-    fig.suptitle("The same data and the same classifier, split five ways "
-                 "(dashed line: chance)", fontsize=10)
+    if not STYLE["paper"]:
+        fig.suptitle("The same data and the same classifier, split five ways "
+                     "(dashed line: chance)", fontsize=10)
     fig.tight_layout()
-    fig.savefig(out / "leakage.png", dpi=180)
-    log.info("wrote %s", out / "leakage.png")
+    _save(fig, out, "leakage")
 
 
 def latency_figure(root: Path, out: Path) -> None:
@@ -196,7 +232,7 @@ def latency_figure(root: Path, out: Path) -> None:
     datasets = sorted({n for _, n, *_ in rows})
     colors = {"music (MUSIN-G)": "#c0392b", "music (Bach)": "#2c6fbb"}
 
-    fig, ax = plt.subplots(figsize=(6.4, 4))
+    fig, ax = plt.subplots(figsize=_figsize("column", 2.3 if STYLE["paper"] else 4))
     for j, name in enumerate(datasets):
         xs, ys, lo, hi = [], [], [], []
         for i, b in enumerate(bands):
@@ -221,8 +257,7 @@ def latency_figure(root: Path, out: Path) -> None:
     ax.legend(frameon=False, fontsize=8)
     ax.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()
-    fig.savefig(out / "latency_bands.png", dpi=180)
-    log.info("wrote %s", out / "latency_bands.png")
+    _save(fig, out, "latency_bands")
 
 
 def sweep_figure(root: Path, out: Path) -> None:
@@ -236,10 +271,11 @@ def sweep_figure(root: Path, out: Path) -> None:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    sources = [("MUSIN-G", "latency_broad.json", "#c0392b"),
-               ("Bach", "latency_bach_broad.json", "#2c6fbb"),
+    # Bach is deliberately absent: its match-mismatch score survives the derangement control, so
+    # the shift it selects is not interpretable as a response latency.
+    sources = [("MUSIN-G", "bhaskar/latency_broad.json", "#c0392b"),
                ("OpenMIIR", "openmiir/latency_broad.json", "#1e8449")]
-    fig, ax = plt.subplots(figsize=(7, 4.4))
+    fig, ax = plt.subplots(figsize=_figsize("column", 2.4 if STYLE["paper"] else 4.4))
     found = 0
     for label, pattern, color in sources:
         hits = sorted(root.rglob(pattern))
@@ -255,8 +291,9 @@ def sweep_figure(root: Path, out: Path) -> None:
         win = wins[-1]
         xs = [r["shift_ms"] for r in sweep]
         ys = [r.get(win, float("nan")) for r in sweep]
-        ax.plot(xs, ys, "o-", color=color, markersize=4,
-                label=f"{label} ({win} windows)")
+        ax.plot(xs, ys, "o-", color=color, markersize=3 if STYLE["paper"] else 4,
+                linewidth=1.0 if STYLE["paper"] else 1.5,
+                label=f"{label} ({win})")
         best = max(sweep, key=lambda r: r.get(win, 0))
         ax.axvline(best["shift_ms"], color=color, ls=":", lw=1)
         found += 1
@@ -265,15 +302,17 @@ def sweep_figure(root: Path, out: Path) -> None:
         return
     ax.axhline(0.5, color="k", ls="--", lw=1)
     ax.axvline(0, color="0.6", lw=0.8)
-    ax.set_xlabel("shift applied to the music (ms; positive = music treated as later)")
+    ax.set_xlabel("shift applied to the music (ms)" if STYLE["paper"]
+                  else "shift applied to the music (ms; positive = music treated as later)")
     ax.set_ylabel("match-mismatch accuracy")
-    ax.set_title("One speech decoder, three music datasets\n"
-                 "(dotted lines: the shift each dataset selects)", fontsize=10)
-    ax.legend(frameon=False, fontsize=8)
+    if not STYLE["paper"]:
+        ax.set_title("One speech decoder, three music datasets\n"
+                     "(dotted lines: the shift each dataset selects)", fontsize=10)
+    ax.legend(frameon=False, fontsize=6.5 if STYLE["paper"] else 8,
+              loc="lower center", ncol=2 if STYLE["paper"] else 1)
     ax.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()
-    fig.savefig(out / "shift_sweeps.png", dpi=180)
-    log.info("wrote %s", out / "shift_sweeps.png")
+    _save(fig, out, "shift_sweeps")
 
 
 def scaling_figure(root: Path, out: Path) -> None:
@@ -318,18 +357,25 @@ def scaling_figure(root: Path, out: Path) -> None:
     fig.suptitle("Speech pretraining as music data is withheld: the gain does not grow "
                  "when data is scarce", fontsize=10)
     fig.tight_layout()
-    fig.savefig(out / "scaling.png", dpi=180)
-    log.info("wrote %s", out / "scaling.png")
+    _save(fig, out, "scaling")
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m eg606.eval.figs")
     ap.add_argument("--results", default="results")
     ap.add_argument("--out", default="results/figs")
+    ap.add_argument("--paper", action="store_true",
+                    help="draw at final column width with paper-sized type, and write PDFs")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     root, out = Path(args.results), Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    if args.paper:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        STYLE["paper"] = True
+        plt.rcParams.update(PAPER_RC)
     leakage_figure(root, out)
     controls_figure(root, out)
     latency_figure(root, out)
