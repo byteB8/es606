@@ -1,13 +1,76 @@
-# eg606: decoding naturalistic music from EEG, across listeners
+# eg606: which song is a new listener hearing?
 
-Can we tell *which music someone is hearing*, and *when*, from their EEG, for a listener the model
-has never seen? This repository contains the full pipeline: dataset acquisition, preprocessing,
-linear baselines, a contrastive EEG↔audio model, and (the part that ended up mattering most) the
-controls that say which of those results are real.
+From EEG recorded while someone listens to music, can we tell which of 12 songs they are hearing,
+for a listener the model has never seen? This repository holds the full pipeline: dataset
+acquisition, preprocessing, the decoder, the baselines, and the controls that test whether a result
+comes from the music.
 
 Course project for ES 606 (Computational Neuroscience), IIT Gandhinagar.
 
-## 1. The usual protocol measures the recording, not the music
+## Result: naming the song for a new listener
+
+On [MUSIN-G](https://openneuro.org/datasets/ds003774) (20 listeners, 12 songs, each heard once),
+song classifiers fall to chance (8.3%) when the test listener is excluded from training. Each song is
+heard once, so they learn the recording instead of the music (see [Earlier analyses](#earlier-analyses)).
+
+The decoder here maps EEG to the music instead:
+
+1. A ridge regression, trained on the other 19 listeners, reconstructs the song's **note-onset
+   curve** (spectral flux of the audio, 0-4 kHz) from 0-500 ms of EEG after each moment.
+2. The reconstruction is correlated with the onset curve of each of the 12 songs.
+3. The best-correlated song is the answer. The song label is never a training target.
+
+![Accuracy against window length, and per listener at 10 s](docs/figures/new_listener.png)
+
+Accuracy (%) for new listeners, mean over 20 leave-one-listener-out folds. Chance is 8.3%. The 10 s
+window was declared as the main one before any result.
+
+| model | 2 s | 10 s | 30 s | whole song (100 s) |
+|---|---|---|---|---|
+| **onset decoder** | **11.2** | **15.5** | **20.4** | **31.7** (76 of 240) |
+| same decoder, EEG shifted in time (control) | 8.2 | 8.4 | 8.1 | 9.3 |
+| logistic regression on band power | 8.3 | 8.1 | 8.3 | 8.7 |
+| CNN on spectrograms (GuessTheMusic-style) | 9.0 | 9.1 | 9.2 | 10.0 |
+| onset decoder, new listener **and** new song | 10.3 | 13.4 | 17.1 | 26.2 |
+
+At 10 s the decoder beats chance for 18 of 20 listeners (+7.1 points, 95% CI 4.9-9.2,
+q = 6e-5) and its own time-shift control for 19 of 20. It also names songs that no training EEG
+came from, which a classifier cannot do.
+
+How much of each signal the decoder needs (10 s):
+
+| change | accuracy |
+|---|---|
+| onset curve from audio below 0.5 / 1 / 2 / 4 kHz | 9.9 / 12.6 / 14.2 / 15.5% |
+| loudness envelope instead of onsets | 12.0% |
+| 8 band-wise onset curves instead of one | 15.2% |
+| EEG at 128 Hz instead of 64 Hz (0.5-32 Hz) | 15.9% |
+| EEG 32-45 Hz amplitude envelope alone | 7.7% (chance) |
+
+Keeping the music's higher sound frequencies helps (4 vs 0.5 kHz: +5.6 points, q = 4e-4);
+keeping more of the EEG does not. All 11 declared comparisons, with intervals and corrected q values,
+are written by `tools/report_newlistener.py`.
+
+### Reproduce
+
+```bash
+python -m eg606.prep.musin_g --subjects all --clean basic          # 109 channels, 0.5-32 Hz, 64 Hz
+python -m eg606.eval.newlistener --variant basic --splits loso,loso_song \
+       --lambdas 3,11,17 --out results/newlistener/decoder_basic_lam11.json
+python -m eg606.eval.newlistener_baselines --model logreg --out results/newlistener/logreg_basic.json
+python -m eg606.eval.newlistener_baselines --model cnn --out results/newlistener/cnn_basic.json
+python tools/report_newlistener.py                                  # tables and declared tests
+```
+
+Every run used in the results is listed in `configs/jobs_newlistener_{a,b,c}.txt`;
+`scripts/submit_newlistener.sh` submits them as Slurm arrays.
+
+## Earlier analyses
+
+These come from the first phase of the project. They explain why the final task holds out whole
+listeners and why every result is reported beside a control.
+
+### 1. The usual protocol measures the recording, not the music
 
 Published EEG music-identification results are usually obtained by splitting *one continuous
 recording* into training and test windows. Reproducing that protocol across three public datasets
@@ -29,7 +92,7 @@ A *stronger* model makes this worse, not better. A spectrogram CNN reaches 8.1×
 recording and reads 3.0× from silence, while generalising to a new listener exactly as badly.
 Capacity buys leakage, not generalisation.
 
-## 2. The time-locked alternative needs a control of its own
+### 2. The time-locked alternative needs a control of its own
 
 A natural alternative, used widely for speech, is a time-locked **match–mismatch** task: given EEG and two candidate audio
 excerpts (the true one, and an imposter from the same song a second later), decide which produced
@@ -60,7 +123,7 @@ way (control 0.592 at 3 s).
 The linear decoder passes both splits with its control at chance. The contrastive model does not
 survive correction (q = 0.062) and is reported here as a negative result.
 
-## 3. Cross-dataset timing
+### 3. Cross-dataset timing
 
 ![One speech decoder, three music datasets](docs/figures/shift_sweeps.png)
 
@@ -79,7 +142,8 @@ src/eg606/
   data/import_local.py  install datasets that block scripted download (Dryad)
   prep/            preprocessing per dataset -> 64 Hz epochs aligned to audio features
   audio/           envelope and onset (spectral flux) features, one definition for all datasets
-  eval/            protocol comparison, match-mismatch, transfer, latency analysis, song ID
+  eval/            new-listener song ID (newlistener*.py), protocol comparison, match-mismatch,
+                   transfer, latency analysis
   models/          contrastive EEG-audio model; VLAAI zero-shot wrapper
   train/           training loop and cross-validation (by listener, by song, or both)
 scripts/           server sync, Slurm templates, publishing

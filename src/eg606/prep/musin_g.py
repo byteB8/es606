@@ -78,7 +78,8 @@ def trials(root: Path, sub: str, durations: dict[int, float]) -> list[dict]:
 
 
 def preprocess_subject(sub: str, root: Path, durations: dict[int, float],
-                       to_montage: str | None = None, clean: str = "none") -> dict:
+                       to_montage: str | None = None, clean: str = "none",
+                       fs_out: float = FS_OUT, band: tuple[float, float] = BAND) -> dict:
     setf = glob.glob(str(root / "sourcedata" / sub / "eeg" / "*_eeg.set"))[0]
     raw = mne.io.read_raw_eeglab(setf, preload=True, verbose="ERROR")
 
@@ -116,18 +117,21 @@ def preprocess_subject(sub: str, root: Path, durations: dict[int, float],
         ica.apply(raw, verbose="ERROR")
         del ica_raw
 
-    raw.filter(*BAND, fir_design="firwin", verbose="ERROR")
+    if band[1] > 40.0:
+        # a low-pass above 40 Hz leaves the 50 Hz mains line inside its transition band
+        raw.notch_filter(50.0, fir_design="firwin", verbose="ERROR")
+    raw.filter(*band, fir_design="firwin", verbose="ERROR")
     raw.set_eeg_reference("average", verbose="ERROR")
-    raw.resample(FS_OUT, npad="auto", verbose="ERROR")
+    raw.resample(fs_out, npad="auto", verbose="ERROR")
     if to_montage:
         # spherical-spline interpolation onto the speech cap, so one decoder fits both datasets
         raw = raw.interpolate_to(mne.channels.make_standard_montage(to_montage), method="MNE")
 
     data, meta = {}, []
     for t in trials(root, sub, durations):
-        a = int(round(t["onset"] * FS_OUT))
-        b = a + int(round(t["duration"] * FS_OUT))
-        pre = int(round(PRE_SILENCE * FS_OUT))
+        a = int(round(t["onset"] * fs_out))
+        b = a + int(round(t["duration"] * fs_out))
+        pre = int(round(PRE_SILENCE * fs_out))
         if b > raw.n_times or a - pre < 0:
             raise ValueError(f"{sub}: trial {t['block_pos']} outside the recording")
         data[f"song{t['song']:02d}"] = raw.get_data(start=a, stop=b).astype(np.float32)
@@ -144,7 +148,13 @@ def main(argv: list[str] | None = None) -> int:
                     help="artifact handling level (an experimental variable, see CLEAN_LEVELS)")
     ap.add_argument("--to-montage", default=None,
                     help="interpolate onto a standard montage, e.g. biosemi64 (for transfer)")
+    ap.add_argument("--fs", type=float, default=FS_OUT, help="output sampling rate (Hz)")
+    ap.add_argument("--band", default=None,
+                    help="EEG pass band 'lo,hi' in Hz (default 0.5,32); e.g. 0.5,45 with --fs 128")
     args = ap.parse_args(argv)
+    band = tuple(float(v) for v in args.band.split(",")) if args.band else BAND
+    # non-default rate or band gets its own file, e.g. sub-001_basic_fs128lp45.npz
+    tag = "" if (args.fs, band) == (FS_OUT, BAND) else f"_fs{args.fs:g}lp{band[1]:g}"
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     root, out = raw_dir("musin_g"), derived_dir("musin_g")
@@ -153,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # audio features, once for all subjects
     feat_path = out / "audio_features.npz"
-    if args.force or not feat_path.exists():
+    if not tag and (args.force or not feat_path.exists()):   # 64 Hz features only
         feats = {}
         for i in range(1, 13):
             x, sr = read_wav(root / "Code" / "ESongs" / f"{i}.esh.wav")
@@ -167,12 +177,13 @@ def main(argv: list[str] | None = None) -> int:
     for sub in subs:
         suffix = ("" if args.clean == "none" else f"_{args.clean}")
         suffix += f"_{SUFFIX[args.to_montage]}" if args.to_montage else ""
+        suffix += tag
         dest = out / f"{sub}{suffix}.npz"
         if dest.exists() and not args.force:
             log.info("%s cached", sub); continue
         log.info("%s ...", sub)
-        r = preprocess_subject(sub, root, durations, args.to_montage, args.clean)
-        np.savez_compressed(dest, fs=FS_OUT, ch_names=np.array(r["ch_names"]),
+        r = preprocess_subject(sub, root, durations, args.to_montage, args.clean, args.fs, band)
+        np.savez_compressed(dest, fs=args.fs, band=np.array(band), ch_names=np.array(r["ch_names"]),
                             meta=json.dumps(r["meta"]), report=json.dumps(r["report"]),
                             **r["data"])
         log.info("%s -> %s (%d channels, %d bad, %d ICs removed)", sub, dest.name,

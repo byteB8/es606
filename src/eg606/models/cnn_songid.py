@@ -50,3 +50,39 @@ class SongCNN(nn.Module):
 
     def forward(self, x):
         return self.net(x)
+
+
+def fit(Xtr: np.ndarray, ytr: np.ndarray, n_classes: int, device: str = "cpu", epochs: int = 25,
+        seed: int = 0):
+    """Train SongCNN on windows standardised with training statistics.
+
+    Returns a function mapping windows to log-probabilities (windows, n_classes).
+    """
+    torch.manual_seed(seed)
+    Xtr = Xtr.astype(np.float32)
+    mu, sd = Xtr.mean((0, 3), keepdims=True), Xtr.std((0, 3), keepdims=True) + 1e-6
+    model = SongCNN(Xtr.shape[1], n_classes).to(device)
+    opt = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=0.05)
+    lossf = nn.CrossEntropyLoss()
+    xtr = torch.from_numpy((Xtr - mu) / sd)
+    ttr = torch.from_numpy(np.asarray(ytr)).long()
+    for _ in range(epochs):
+        model.train()
+        perm = torch.randperm(len(xtr))
+        for i in range(0, len(perm), 128):
+            b = perm[i:i + 128]
+            opt.zero_grad()
+            loss = lossf(model(xtr[b].to(device)), ttr[b].to(device))
+            loss.backward()
+            opt.step()
+    model.eval()
+
+    def log_proba(X: np.ndarray) -> np.ndarray:
+        x = torch.from_numpy((X.astype(np.float32) - mu) / sd)
+        out = []
+        with torch.no_grad():
+            for i in range(0, len(x), 256):
+                out.append(torch.log_softmax(model(x[i:i + 256].to(device)), 1).cpu().numpy())
+        return np.concatenate(out) if out else np.zeros((0, n_classes), dtype=np.float32)
+
+    return log_proba

@@ -78,6 +78,36 @@ def onset_envelope(x: np.ndarray, sr: int, fs_out: float) -> np.ndarray:
     return _to_rate(np.maximum(flux, 0).mean(axis=1), sr / hop, fs_out)
 
 
+def onset_bands(x: np.ndarray, sr: int, fs_out: float,
+                bands: list[tuple[float, float]]) -> np.ndarray:
+    """Half-wave-rectified spectral flux in each frequency band, (bands, time) at fs_out Hz.
+
+    `onset_envelope` averages the flux over every frequency bin, so a note that starts only in the
+    high range (a hi-hat, a consonant) is diluted by the bins where nothing changed. Keeping one
+    curve per band keeps that detail. With a single band (0, inf) this equals `onset_envelope`;
+    with (0, f) it is the broadband onset computed from the audio below f only.
+    """
+    x, sr = to_feat_sr(x, sr)
+    win = int(round(sr * 0.025)) or 2
+    hop = max(int(round(sr / (fs_out * 4))), 1)
+    mag, freqs = _spectrogram(x, sr, hop, win)
+    flux = np.maximum(np.diff(np.log1p(mag), axis=0, prepend=np.log1p(mag[:1])), 0)
+    out = []
+    for lo, hi in bands:
+        sel = (freqs >= lo) & (freqs < hi)
+        if not sel.any():
+            raise ValueError(f"no spectral bin in {lo}-{hi} Hz")
+        out.append(_to_rate(flux[:, sel].mean(axis=1), sr / hop, fs_out))
+    return np.stack(out)
+
+
+def erb_bands(n: int, fmin: float = FMIN, fmax: float = FEAT_SR / 2) -> list[tuple[float, float]]:
+    """n bands equally spaced on the ERB scale, the cochlea's own frequency spacing."""
+    edges = _erb2hz(np.linspace(_hz2erb(fmin), _hz2erb(fmax), n + 1))
+    edges[-1] = np.inf          # keep the Nyquist bin, as the broadband onset does
+    return list(zip(edges[:-1], edges[1:]))
+
+
 def _to_rate(sig: np.ndarray, fs_in: float, fs_out: float) -> np.ndarray:
     up, down = int(round(fs_out * 1000)), int(round(fs_in * 1000))
     g = np.gcd(up, down)

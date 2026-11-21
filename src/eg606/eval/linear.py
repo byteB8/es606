@@ -10,7 +10,15 @@ import numpy as np
 from scipy.linalg import cho_factor, cho_solve
 
 FS = 64.0
-LAGS = np.arange(0, int(round(0.5 * FS)) + 1)  # 0-500 ms: EEG follows the audio
+LAG_S = 0.5                                     # EEG follows the audio by up to 500 ms
+
+
+def lags_for(fs: float) -> np.ndarray:
+    """Lag indices covering 0-500 ms at sampling rate fs (33 lags at 64 Hz, 65 at 128 Hz)."""
+    return np.arange(0, int(round(LAG_S * fs)) + 1)
+
+
+LAGS = lags_for(FS)
 GUARD = 1.0                                     # s between a window and its imposter
 
 
@@ -19,31 +27,35 @@ def zscore(x: np.ndarray, axis=-1) -> np.ndarray:
     return (x - m) / np.where(s > 0, s, 1.0)
 
 
-def lagged(eeg: np.ndarray, n: int) -> np.ndarray:
+def lagged(eeg: np.ndarray, n: int, lags: np.ndarray = LAGS) -> np.ndarray:
     """(channels, time) -> (time, channels*lags), zero-padded at the end."""
     c, t = eeg.shape
-    out = np.zeros((n, c * len(LAGS)), dtype=np.float64)
-    for i, lag in enumerate(LAGS):
+    out = np.zeros((n, c * len(lags)), dtype=np.float64)
+    for i, lag in enumerate(lags):
         end = min(n, t - lag)
         if end > 0:
             out[:end, i * c:(i + 1) * c] = eeg[:, lag:lag + end].T
     return out
 
 
-def predict(eeg: np.ndarray, w: np.ndarray, n: int) -> np.ndarray:
-    """Apply a backward model without materialising the lagged design matrix."""
+def predict(eeg: np.ndarray, w: np.ndarray, n: int, lags: np.ndarray = LAGS) -> np.ndarray:
+    """Apply a backward model without materialising the lagged design matrix.
+
+    w is (channels*lags,) for one target or (channels*lags, targets) for several; the output is
+    (n,) or (n, targets) accordingly.
+    """
     c = eeg.shape[0]
-    out = np.zeros(n, dtype=np.float64)
-    for i, lag in enumerate(LAGS):
+    out = np.zeros((n,) + w.shape[1:], dtype=np.float64)
+    for i, lag in enumerate(lags):
         end = min(n, eeg.shape[1] - lag)
         if end > 0:
             out[:end] += eeg[:, lag:lag + end].T @ w[i * c:(i + 1) * c]
     return out
 
 
-def accumulate(eeg: np.ndarray, y: np.ndarray, xtx=None, xty=None):
-    """Add one trial to the normal equations."""
-    X = lagged(eeg, len(y))
+def accumulate(eeg: np.ndarray, y: np.ndarray, xtx=None, xty=None, lags: np.ndarray = LAGS):
+    """Add one trial to the normal equations. y is (time,) or (time, targets)."""
+    X = lagged(eeg, len(y), lags)
     return (X.T @ X if xtx is None else xtx + X.T @ X,
             X.T @ y if xty is None else xty + X.T @ y)
 

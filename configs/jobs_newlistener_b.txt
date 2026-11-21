@@ -1,0 +1,4 @@
+-m eg606.eval.newlistener --variant basic --splits loso,loso_song --lambdas 3,11,17 --out results/newlistener/decoder_basic_lam11.json
+-m eg606.eval.newlistener --variant basic_fs128lp32 --targets onset --splits loso --lambdas 3,11,17 --out results/newlistener/decoder_fs128lp32_lam11.json
+-m eg606.eval.newlistener --variant basic_fs128lp45 --targets onset --splits loso --lambdas 3,11,17 --out results/newlistener/decoder_fs128lp45_lam11.json
+-m eg606.eval.newlistener --variant basic_fs128lp45 --eeg gamma_env --targets onset --splits loso --lambdas 3,11,17 --out results/newlistener/decoder_gamma_lam11.json

@@ -1,0 +1,3 @@
+-m eg606.eval.newlistener --variant none --targets onset --splits loso --lambdas 3,11,17 --out results/newlistener/decoder_none_lam11.json
+-m eg606.eval.newlistener --variant ica --targets onset --splits loso --lambdas 3,11,17 --out results/newlistener/decoder_ica_lam11.json
+tools/example_reconstruction.py --sub sub-002 --result results/newlistener/decoder_basic_lam11.json --out results/newlistener/example_sub-002.npz

@@ -20,10 +20,9 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from torch import nn
 
 from eg606.eval.leakage import Windows, _stack
-from eg606.models.cnn_songid import SongCNN, spectrograms
+from eg606.models.cnn_songid import fit, spectrograms
 from eg606.paths import derived_dir
 
 log = logging.getLogger(__name__)
@@ -69,38 +68,14 @@ def train_eval(w: Windows, tr, te, classes=None, device="cpu", epochs=25, seed=0
     NMED-H a listener heard four of the sixteen stimuli, so scoring them against all sixteen would
     make the task harder than the one the linear audit ran and the two would not be comparable.
     """
-    torch.manual_seed(seed)
     classes = sorted(set(w.label[tr])) if classes is None else classes
     index = {c: i for i, c in enumerate(classes)}
     ytr = np.array([index[c] for c in w.label[tr]])
     yte = np.array([index.get(c, -1) for c in w.label[te]])
     if len(set(ytr)) < 2 or not len(yte):
         return None
-    Xtr, Xte = w.X[tr].astype(np.float32), w.X[te].astype(np.float32)
-    mu, sd = Xtr.mean((0, 3), keepdims=True), Xtr.std((0, 3), keepdims=True) + 1e-6
-    Xtr, Xte = (Xtr - mu) / sd, (Xte - mu) / sd
-
-    model = SongCNN(Xtr.shape[1], len(classes)).to(device)
-    opt = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=0.05)
-    lossf = nn.CrossEntropyLoss()
-    xtr = torch.from_numpy(Xtr)
-    ttr = torch.from_numpy(ytr).long()
-    for ep in range(epochs):
-        model.train()
-        perm = torch.randperm(len(xtr))
-        for i in range(0, len(perm), 128):
-            b = perm[i:i + 128]
-            opt.zero_grad()
-            loss = lossf(model(xtr[b].to(device)), ttr[b].to(device))
-            loss.backward()
-            opt.step()
-    model.eval()
-    preds = []
-    with torch.no_grad():
-        xte = torch.from_numpy(Xte)
-        for i in range(0, len(xte), 256):
-            preds.append(model(xte[i:i + 256].to(device)).argmax(1).cpu().numpy())
-    return float((np.concatenate(preds) == yte).mean())
+    log_proba = fit(w.X[tr], ytr, len(classes), device, epochs, seed)
+    return float((log_proba(w.X[te]).argmax(1) == yte).mean())
 
 
 def conditions(music: Windows, silence: Windows | None, device, seed: int) -> dict:

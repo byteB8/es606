@@ -23,6 +23,9 @@ cmd=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "$jobs_file")
 if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else source /etc/profile.d/modules.sh; module load anaconda3-2024; PY=python; fi
 export EG606_DATA="${EG606_DATA:-$HOME/egdta}"
 export PYTHONPATH=src
+# BLAS would otherwise start one thread per core of the whole node, not of this allocation
+export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}" OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}" \
+       MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
 mkdir -p logs results
 
 echo "host=$(hostname) array=$SLURM_ARRAY_JOB_ID task=$SLURM_ARRAY_TASK_ID gpu=${CUDA_VISIBLE_DEVICES:-none}"

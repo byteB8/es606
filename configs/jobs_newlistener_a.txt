@@ -1,0 +1,5 @@
+-m eg606.eval.newlistener --variant basic --splits loso,loso_song --out results/newlistener/decoder_basic.json
+-m eg606.eval.newlistener_baselines --model cnn --out results/newlistener/cnn_basic.json
+-m eg606.eval.newlistener_baselines --model logreg --out results/newlistener/logreg_basic.json
+-m eg606.prep.musin_g --subjects all --clean basic --fs 128 --band 0.5,45
+-m eg606.prep.musin_g --subjects all --clean basic --fs 128 --band 0.5,32
