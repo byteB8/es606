@@ -25,17 +25,23 @@ The decoder here maps EEG to the music instead:
 Accuracy (%) for new listeners, mean over 20 leave-one-listener-out folds. Chance is 8.3%. The 10 s
 window was declared as the main one before any result.
 
-| model | 2 s | 10 s | 30 s | whole song (100 s) |
+| model | 2 s | 10 s | 30 s | first 100 s of the song |
 |---|---|---|---|---|
 | **onset decoder** | **11.2** | **15.5** | **20.4** | **31.7** (76 of 240) |
 | same decoder, EEG shifted in time (control) | 8.2 | 8.4 | 8.1 | 9.3 |
 | logistic regression on band power | 8.3 | 8.1 | 8.3 | 8.7 |
 | CNN on spectrograms (GuessTheMusic-style) | 9.0 | 9.1 | 9.2 | 10.0 |
-| onset decoder, new listener **and** new song | 10.3 | 13.4 | 17.1 | 26.2 |
+| onset decoder, new listener, no EEG of the test song in training | 10.3 | 13.4 | 17.1 | 26.2 |
 
 At 10 s the decoder beats chance for 18 of 20 listeners (+7.1 points, 95% CI 4.9-9.2,
-q = 6e-5) and its own time-shift control for 19 of 20. It also names songs that no training EEG
-came from, which a classifier cannot do.
+q = 6e-5) and its own time-shift control for 19 of 20. Given the first 100 s of a song it is right
+in 76 of 240 trials: 31.7% at the listener level (95% CI 22.1-41.7%), above chance for 16 of 20
+listeners (sign-flip p = 1e-4). Songs last 100-133 s; scoring uses the first 100 s so that all 12
+candidates exist at every moment.
+
+In the last row, every EEG recording of the test song is also removed from training. The song's
+audio stays among the 12 candidates; only its EEG is withheld. A classifier cannot do this, because
+it can only answer with songs it has training EEG for.
 
 How much of each signal the decoder needs (10 s):
 
